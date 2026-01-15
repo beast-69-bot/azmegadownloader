@@ -1,130 +1,135 @@
-# ruff: noqa: E402
+from __future__ import annotations
 
-from .core.config_manager import Config
+import asyncio
+from pathlib import Path
 
-Config.load()
+from pyrogram import Client, filters
+from pyrogram.handlers import MessageHandler
 
-from datetime import datetime
-from logging import Formatter
-
-from pytz import timezone
-
-from . import LOGGER, bot_loop
-from .core.tg_client import TgClient
-
-
-async def main():
-    from asyncio import gather
-
-    from .core.startup import (
-        load_configurations,
-        load_settings,
-        save_settings,
-        update_aria2_options,
-        update_nzb_options,
-        update_qb_options,
-        update_variables,
-    )
-
-    await load_settings()
-
-    def changetz(*args):
-        return datetime.now(timezone(Config.TIMEZONE)).timetuple()
-
-    Formatter.converter = changetz
-
-    await gather(
-        TgClient.start_bot(), TgClient.start_user(), TgClient.start_helper_bots()
-    )
-    await gather(load_configurations(), update_variables())
-
-    from .core.torrent_manager import TorrentManager
-
-    await TorrentManager.initiate()
-    await gather(
-        update_qb_options(),
-        update_aria2_options(),
-        update_nzb_options(),
-    )
-    from .core.jdownloader_booter import jdownloader
-    from .helper.ext_utils.files_utils import clean_all
-    from .helper.ext_utils.telegraph_helper import telegraph
-    from .helper.mirror_leech_utils.rclone_utils.serve import rclone_serve_booter
-    from .modules import (
-        get_packages_version,
-        initiate_search_tools,
-        restart_notification,
-    )
-
-    await gather(
-        save_settings(),
-        jdownloader.boot(),
-        clean_all(),
-        initiate_search_tools(),
-        get_packages_version(),
-        restart_notification(),
-        telegraph.create_account(),
-        rclone_serve_booter(),
-    )
-
-
-bot_loop.run_until_complete(main())
-
-from .core.handlers import add_handlers
-from .helper.ext_utils.bot_utils import create_help_buttons
-from .helper.listeners.aria2_listener import add_aria2_callbacks
-
-add_aria2_callbacks()
-create_help_buttons()
-add_handlers()
-
-from .core.plugin_manager import get_plugin_manager
-from .modules.plugin_manager import register_plugin_commands
-
-plugin_manager = get_plugin_manager()
-plugin_manager.bot = TgClient.bot
-register_plugin_commands()
-
-from pyrogram.filters import regex
-from pyrogram.handlers import CallbackQueryHandler
-
-from .core.handlers import add_handlers
-from .helper.ext_utils.bot_utils import new_task
-from .helper.telegram_helper.filters import CustomFilters
-from .helper.telegram_helper.message_utils import (
-    delete_message,
-    edit_message,
-    send_message,
+from . import LOGGER
+from .config import (
+    AUTHORIZED_CHAT_IDS,
+    BOT_TOKEN,
+    CONCURRENT_DOWNLOADS,
+    CONCURRENT_UPLOADS,
+    DOWNLOAD_DIR,
+    OWNER_ID,
+    STATUS_UPDATE_INTERVAL,
+    TELEGRAM_API,
+    TELEGRAM_HASH,
 )
+from .mega_download import download_mega
+from .progress import ProgressMessage
+from .uploader import upload_path
+from .utils import is_mega_link, safe_link_from_text
+
+DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
+UPLOAD_SEM = asyncio.Semaphore(CONCURRENT_UPLOADS)
 
 
-@new_task
-async def restart_sessions_confirm(_, query):
-    data = query.data.split()
-    message = query.message
-    if data[1] == "confirm":
-        reply_to = message.reply_to_message
-        restart_message = await send_message(reply_to, "Restarting Session(s)...")
-        await delete_message(message)
-        await TgClient.reload()
-        add_handlers()
-        TgClient.bot.add_handler(
-            CallbackQueryHandler(
-                restart_sessions_confirm,
-                filters=regex("^sessionrestart") & CustomFilters.sudo,
-            )
+def _authorized(message) -> bool:
+    if OWNER_ID and message.from_user and message.from_user.id == OWNER_ID:
+        return True
+    if not AUTHORIZED_CHAT_IDS:
+        return True
+    return message.chat.id in AUTHORIZED_CHAT_IDS
+
+
+async def _cleanup(path: Path):
+    if not path.exists():
+        return
+    for child in path.rglob("*"):
+        if child.is_file():
+            child.unlink(missing_ok=True)
+    for child in sorted(path.rglob("*"), reverse=True):
+        if child.is_dir():
+            child.rmdir()
+    path.rmdir()
+
+
+async def _run_leech(client: Client, message):
+    if not _authorized(message):
+        return await message.reply("Unauthorized")
+
+    link = ""
+    if message.text:
+        parts = message.text.split(maxsplit=1)
+        if len(parts) > 1:
+            link = parts[1].strip()
+    if not link and message.reply_to_message and message.reply_to_message.text:
+        link = safe_link_from_text(message.reply_to_message.text)
+
+    if not is_mega_link(link):
+        return await message.reply("Send a MEGA link with /leech")
+
+    status = await message.reply("Starting download...")
+    progress = ProgressMessage(status, "Downloading", STATUS_UPDATE_INTERVAL)
+
+    async def progress_cb(done, speed, total):
+        await progress.update(done, total, speed)
+
+    dest = DOWNLOAD_DIR / str(message.id)
+
+    await DOWNLOAD_SEM.acquire()
+    try:
+        await download_mega(link, dest, progress_cb)
+    except Exception as e:
+        LOGGER.error(f"Download failed: {e}")
+        await status.edit_text(f"Download failed: {e}")
+        await _cleanup(dest)
+        return
+    finally:
+        DOWNLOAD_SEM.release()
+
+    await progress.finalize("Download complete. Uploading...")
+
+    await UPLOAD_SEM.acquire()
+    try:
+        await upload_path(client, message.chat.id, dest, status)
+        await status.edit_text("Leech complete.")
+    except Exception as e:
+        LOGGER.error(f"Upload failed: {e}")
+        await status.edit_text(f"Upload failed: {e}")
+    finally:
+        UPLOAD_SEM.release()
+        await _cleanup(dest)
+
+
+async def start_cmd(_, message):
+    await message.reply("MEGA leech bot is running. Use /leech <mega link>.")
+
+
+async def help_cmd(_, message):
+    await message.reply(
+        "Commands:\n/leech <mega link> - download and upload to Telegram\n/ping - check bot"
+    )
+
+
+async def ping_cmd(_, message):
+    await message.reply("pong")
+
+
+def main():
+    app = Client(
+        "mega_leech_bot",
+        api_id=TELEGRAM_API,
+        api_hash=TELEGRAM_HASH,
+        bot_token=BOT_TOKEN,
+    )
+
+    app.add_handler(MessageHandler(start_cmd, filters.command("start")))
+    app.add_handler(MessageHandler(help_cmd, filters.command("help")))
+    app.add_handler(MessageHandler(ping_cmd, filters.command("ping")))
+    app.add_handler(
+        MessageHandler(
+            lambda c, m: asyncio.create_task(_run_leech(c, m)),
+            filters.command("leech"),
         )
-        await edit_message(restart_message, "Session(s) Restarted Successfully!")
-    else:
-        await delete_message(message)
-
-
-TgClient.bot.add_handler(
-    CallbackQueryHandler(
-        restart_sessions_confirm,
-        filters=regex("^sessionrestart") & CustomFilters.sudo,
     )
-)
 
-LOGGER.info("WZ Client(s) & Services Started !")
-bot_loop.run_forever()
+    LOGGER.info("Mega leech bot started")
+    app.run()
+
+
+if __name__ == "__main__":
+    main()
