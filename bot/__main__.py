@@ -133,6 +133,10 @@ async def ping_cmd(_, message):
     await message.reply("pong")
 
 
+async def leech_cmd(client, message):
+    await _run_leech(client, message)
+
+
 def main():
     app = Client(
         "mega_leech_bot",
@@ -144,12 +148,7 @@ def main():
     app.add_handler(MessageHandler(start_cmd, filters.command("start")))
     app.add_handler(MessageHandler(help_cmd, filters.command("help")))
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")))
-    app.add_handler(
-        MessageHandler(
-            lambda c, m: asyncio.create_task(_run_leech(c, m)),
-            filters.command("leech"),
-        )
-    )
+    app.add_handler(MessageHandler(leech_cmd, filters.command("leech")))
 
     LOGGER.info("Mega leech bot started")
     app.run()
