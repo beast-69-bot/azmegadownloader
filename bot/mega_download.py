@@ -19,6 +19,29 @@ def is_folder_url(url: str) -> bool:
     return "/folder/" in lower or "#f!" in lower
 
 
+def _normalize_mega_url(url: str) -> str:
+    if not url:
+        return url
+    if "#F!" in url or "#!" in url:
+        return url
+    lower = url.lower()
+    if "/folder/" in lower:
+        try:
+            folder_part = url.split("/folder/", 1)[1]
+            folder_id, key = folder_part.split("#", 1)
+        except ValueError:
+            raise ValueError("MEGA folder link missing key") from None
+        return f"https://mega.nz/#F!{folder_id}!{key}"
+    if "/file/" in lower:
+        try:
+            file_part = url.split("/file/", 1)[1]
+            file_id, key = file_part.split("#", 1)
+        except ValueError:
+            raise ValueError("MEGA file link missing key") from None
+        return f"https://mega.nz/#!{file_id}!{key}"
+    return url
+
+
 def list_files_recursive(path: Path) -> list[str]:
     if path.is_file():
         return [str(path.resolve())]
@@ -38,6 +61,8 @@ async def download_mega_url(url: str, dest_dir: str) -> list[str]:
 
     dest_path = Path(dest_dir).resolve()
     safe_mkdir(dest_path)
+
+    url = _normalize_mega_url(url)
 
     mega = Mega()
     try:
