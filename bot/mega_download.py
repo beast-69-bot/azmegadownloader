@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 from mega import Mega
@@ -23,21 +24,34 @@ def _normalize_mega_url(url: str) -> str:
     if not url:
         return url
     if "#F!" in url or "#!" in url:
+        base, _, frag = url.partition("#")
+        if frag.startswith("F!"):
+            parts = frag.split("!", 2)
+            if len(parts) >= 3:
+                folder_id = parts[1]
+                key = parts[2].split("?")[0].split("/")[0]
+                return f"https://mega.nz/#F!{folder_id}!{key}"
+        if frag.startswith("!"):
+            frag = frag[1:]
+            parts = frag.split("!", 1)
+            if len(parts) == 2:
+                file_id, key = parts
+                key = key.split("?")[0].split("/")[0]
+                return f"https://mega.nz/#!{file_id}!{key}"
         return url
+
     lower = url.lower()
     if "/folder/" in lower:
-        try:
-            folder_part = url.split("/folder/", 1)[1]
-            folder_id, key = folder_part.split("#", 1)
-        except ValueError:
-            raise ValueError("MEGA folder link missing key") from None
+        match = re.search(r"/folder/([^?#/]+)#([^/?]+)", url, re.IGNORECASE)
+        if not match:
+            raise ValueError("MEGA folder link missing key")
+        folder_id, key = match.group(1), match.group(2)
         return f"https://mega.nz/#F!{folder_id}!{key}"
     if "/file/" in lower:
-        try:
-            file_part = url.split("/file/", 1)[1]
-            file_id, key = file_part.split("#", 1)
-        except ValueError:
-            raise ValueError("MEGA file link missing key") from None
+        match = re.search(r"/file/([^?#/]+)#([^/?]+)", url, re.IGNORECASE)
+        if not match:
+            raise ValueError("MEGA file link missing key")
+        file_id, key = match.group(1), match.group(2)
         return f"https://mega.nz/#!{file_id}!{key}"
     return url
 
