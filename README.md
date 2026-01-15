@@ -15,12 +15,8 @@ pip install -r requirements.txt
 python -m bot
 ```
 
-## MEGA SDK vs mega.py
-- Folder links require MEGA SDK Python bindings (`MegaApi`).
-- If you only need file links, you can install `mega.py` as a fallback:
-```
-pip install mega.py
-```
+## MEGA support
+- Uses `mega.py` for both file and folder links.
 
 ## Commands
 - `/leech <mega link>`: download and upload to current chat

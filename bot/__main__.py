@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from pathlib import Path
 
 from pyrogram import Client, filters
@@ -18,7 +19,7 @@ from .config import (
     TELEGRAM_API,
     TELEGRAM_HASH,
 )
-from .mega_download import download_mega
+from .mega_download import download_mega_url
 from .progress import ProgressMessage
 from .uploader import upload_path
 from .utils import is_mega_link, safe_link_from_text
@@ -47,6 +48,25 @@ async def _cleanup(path: Path):
     path.rmdir()
 
 
+async def _poll_download_progress(progress: ProgressMessage, dest: Path):
+    last = 0
+    while True:
+        await asyncio.sleep(STATUS_UPDATE_INTERVAL)
+        total = 0
+        if dest.exists():
+            for child in dest.rglob("*"):
+                if child.is_file():
+                    try:
+                        total += child.stat().st_size
+                    except FileNotFoundError:
+                        continue
+        speed = 0
+        if STATUS_UPDATE_INTERVAL:
+            speed = max(total - last, 0) / STATUS_UPDATE_INTERVAL
+        last = total
+        await progress.update(total, 0, speed)
+
+
 async def _run_leech(client: Client, message):
     if not _authorized(message):
         return await message.reply("Unauthorized")
@@ -65,14 +85,17 @@ async def _run_leech(client: Client, message):
     status = await message.reply("Starting download...")
     progress = ProgressMessage(status, "Downloading", STATUS_UPDATE_INTERVAL)
 
-    async def progress_cb(done, speed, total):
-        await progress.update(done, total, speed)
-
     dest = DOWNLOAD_DIR / str(message.id)
 
     await DOWNLOAD_SEM.acquire()
     try:
-        await download_mega(link, dest, progress_cb)
+        poll_task = asyncio.create_task(_poll_download_progress(progress, dest))
+        try:
+            files = await download_mega_url(link, str(dest))
+        finally:
+            poll_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await poll_task
     except Exception as e:
         LOGGER.error(f"Download failed: {e}")
         await status.edit_text(f"Download failed: {e}")
@@ -85,7 +108,8 @@ async def _run_leech(client: Client, message):
 
     await UPLOAD_SEM.acquire()
     try:
-        await upload_path(client, message.chat.id, dest, status)
+        for file_path in files:
+            await upload_path(client, message.chat.id, Path(file_path), status)
         await status.edit_text("Leech complete.")
     except Exception as e:
         LOGGER.error(f"Upload failed: {e}")
