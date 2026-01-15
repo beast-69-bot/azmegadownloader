@@ -1,11 +1,15 @@
 # ruff: noqa: E402
 
-from uvloop import install
+try:
+    from uvloop import install as uvloop_install
+except ModuleNotFoundError:
+    uvloop_install = None
 
-install()
+if uvloop_install:
+    uvloop_install()
 
 from subprocess import run as srun
-from os import getcwd
+from os import getcwd, name as os_name, path as ospath
 from asyncio import Lock, new_event_loop, set_event_loop
 from logging import (
     ERROR,
@@ -52,7 +56,11 @@ LOGGER = getLogger(__name__)
 cpu_no = cpu_count()
 
 bot_cache = {}
-DOWNLOAD_DIR = "/usr/src/app/downloads/"
+DOWNLOAD_DIR = (
+    f"{ospath.join(getcwd(), 'downloads')}{ospath.sep}"
+    if os_name == "nt"
+    else "/usr/src/app/downloads/"
+)
 intervals = {"status": {}, "qb": "", "jd": "", "nzb": "", "stopAll": False}
 qb_torrents = {}
 jd_downloads = {}
@@ -100,6 +108,9 @@ sabnzbd_client = SabnzbdClient(
     api_key="admin",
     port="8070",
 )
-srun([BinConfig.QBIT_NAME, "-d", f"--profile={getcwd()}"], check=False)
+try:
+    srun([BinConfig.QBIT_NAME, "-d", f"--profile={getcwd()}"], check=False)
+except FileNotFoundError as exc:
+    LOGGER.warning(f"qBittorrent binary not found: {exc}")
 
 scheduler = AsyncIOScheduler(event_loop=bot_loop)

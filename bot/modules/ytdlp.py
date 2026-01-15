@@ -374,7 +374,8 @@ class YtDlp(TaskListener):
         self.thumbnail_layout = args["-tl"]
         self.as_doc = args["-doc"]
         self.as_med = args["-med"]
-        self.folder_name = f"/{args["-m"]}".rstrip("/") if len(args["-m"]) > 0 else ""
+        folder_arg = args["-m"]
+        self.folder_name = f"/{folder_arg}".rstrip("/") if len(folder_arg) > 0 else ""
         self.bot_trans = args["-bt"]
         self.user_trans = args["-ut"]
         self.metadata_dict = self.default_metadata_dict.copy()

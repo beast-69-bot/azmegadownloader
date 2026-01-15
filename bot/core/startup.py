@@ -1,6 +1,6 @@
 from asyncio import create_subprocess_exec, create_subprocess_shell, sleep
 from importlib import import_module
-from os import environ, getenv, path as ospath
+from os import environ, getenv, path as ospath, name as os_name
 
 from aiofiles import open as aiopen
 from aiofiles.os import makedirs, remove, path as aiopath
@@ -55,6 +55,9 @@ async def update_qb_options():
 
 async def update_aria2_options():
     LOGGER.info("Get aria2 options from server")
+    if not TorrentManager.aria2:
+        LOGGER.warning("Aria2 is not initialized. Skipping aria2 options.")
+        return
     if not aria2_options:
         op = await TorrentManager.aria2.getGlobalOption()
         aria2_options.update(op)
@@ -304,27 +307,30 @@ async def load_configurations():
         async with aiopen(".netrc", "w"):
             pass
 
-    await (
-        await create_subprocess_shell(
-            f"chmod 600 .netrc && cp .netrc /root/.netrc && chmod +x setpkgs.sh && ./setpkgs.sh {BinConfig.ARIA2_NAME} {BinConfig.SABNZBD_NAME}"
-        )
-    ).wait()
+    if os_name != "nt":
+        await (
+            await create_subprocess_shell(
+                f"chmod 600 .netrc && cp .netrc /root/.netrc && chmod +x setpkgs.sh && ./setpkgs.sh {BinConfig.ARIA2_NAME} {BinConfig.SABNZBD_NAME}"
+            )
+        ).wait()
+    else:
+        LOGGER.info("Skipping Linux-only setup on Windows.")
 
     PORT = getenv("PORT", "") or Config.BASE_URL_PORT
-    if PORT:
+    if PORT and os_name != "nt":
         await create_subprocess_shell(
             f"gunicorn -k uvicorn.workers.UvicornWorker -w 1 web.wserver:app --bind 0.0.0.0:{PORT}"
         )
         await create_subprocess_shell("python3 cron_boot.py")
 
-    if await aiopath.exists("cfg.zip"):
+    if os_name != "nt" and await aiopath.exists("cfg.zip"):
         if await aiopath.exists("/JDownloader/cfg"):
             await rmtree("/JDownloader/cfg", ignore_errors=True)
         await (
             await create_subprocess_exec("7z", "x", "cfg.zip", "-o/JDownloader")
         ).wait()
 
-    if await aiopath.exists("accounts.zip"):
+    if os_name != "nt" and await aiopath.exists("accounts.zip"):
         if await aiopath.exists("accounts"):
             await rmtree("accounts")
         await (

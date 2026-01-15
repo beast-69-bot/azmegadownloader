@@ -58,7 +58,7 @@ class TorrentManager:
         except Exception as e:
             LOGGER.error(f"Error during initialization: {e}")
             await cls.close_all()
-            raise
+            return
 
     @classmethod
     async def close_all(cls):

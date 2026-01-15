@@ -3,7 +3,7 @@ from asyncio import create_subprocess_exec, sleep, wait_for
 from asyncio.subprocess import PIPE
 from contextlib import suppress
 from psutil import disk_usage
-from os import path as ospath, readlink, walk
+from os import path as ospath, readlink, walk, name as os_name, remove as os_remove
 from re import I, escape, search as re_search, split as re_split
 
 from aiofiles.os import (
@@ -133,7 +133,13 @@ async def clean_download(opath):
 async def clean_all():
     await TorrentManager.remove_all()
     LOGGER.info("Cleaning Download Directory")
-    await (await create_subprocess_exec("rm", "-rf", DOWNLOAD_DIR)).wait()
+    if os_name == "nt":
+        await aiormtree(DOWNLOAD_DIR, ignore_errors=True)
+    else:
+        try:
+            await (await create_subprocess_exec("rm", "-rf", DOWNLOAD_DIR)).wait()
+        except FileNotFoundError:
+            await aiormtree(DOWNLOAD_DIR, ignore_errors=True)
     await aiomakedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
@@ -272,19 +278,57 @@ async def join_files(opath):
                     await remove(f"{opath}/{file_}")
 
 
+def _split_file_python(f_path, split_size, listener):
+    part_idx = 1
+    buf_size = 4 * 1024 * 1024
+    with open(f_path, "rb") as src:
+        while True:
+            if listener.is_cancelled:
+                return False
+            part_path = f"{f_path}.{part_idx:03d}"
+            written = 0
+            with open(part_path, "wb") as dst:
+                while written < split_size:
+                    if listener.is_cancelled:
+                        return False
+                    chunk = src.read(min(buf_size, split_size - written))
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+                    written += len(chunk)
+            if written == 0:
+                if ospath.exists(part_path):
+                    try:
+                        os_remove(part_path)
+                    except Exception:
+                        pass
+                break
+            part_idx += 1
+            if written < split_size:
+                break
+    return True
+
+
 async def split_file(f_path, split_size, listener):
     out_path = f"{f_path}."
     if listener.is_cancelled:
         return False
-    listener.subproc = await create_subprocess_exec(
-        "split",
-        "--numeric-suffixes=1",
-        "--suffix-length=3",
-        f"--bytes={split_size}",
-        f_path,
-        out_path,
-        stderr=PIPE,
-    )
+    if os_name == "nt":
+        listener.subproc = None
+        return await sync_to_async(_split_file_python, f_path, split_size, listener)
+    try:
+        listener.subproc = await create_subprocess_exec(
+            "split",
+            "--numeric-suffixes=1",
+            "--suffix-length=3",
+            f"--bytes={split_size}",
+            f_path,
+            out_path,
+            stderr=PIPE,
+        )
+    except FileNotFoundError:
+        listener.subproc = None
+        return await sync_to_async(_split_file_python, f_path, split_size, listener)
     _, stderr = await listener.subproc.communicate()
     code = listener.subproc.returncode
     if listener.is_cancelled:

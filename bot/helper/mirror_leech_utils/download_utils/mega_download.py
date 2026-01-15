@@ -1,7 +1,14 @@
 from secrets import token_hex
 from aiofiles.os import makedirs
+from asyncio import sleep, get_running_loop
+from pathlib import Path
 
-from mega import MegaApi
+try:
+    from mega import MegaApi
+    MEGA_SDK_AVAILABLE = True
+except Exception:
+    MegaApi = None
+    MEGA_SDK_AVAILABLE = False
 
 from .... import LOGGER, task_dict, task_dict_lock
 from ....core.config_manager import Config
@@ -21,13 +28,121 @@ from ...telegram_helper.message_utils import (
     send_message,
     send_status_message,
 )
-from ...listeners.mega_listener import (
-    MegaAppListener,
-    AsyncMega,
-)
+
+
+class FallbackMegaProgress:
+    def __init__(self):
+        self._bytes = 0
+        self._speed = 0
+        self._last_bytes = 0
+
+    @property
+    def downloaded_bytes(self):
+        return self._bytes
+
+    @property
+    def speed(self):
+        return self._speed
+
+    def update(self, bytes_done):
+        delta = bytes_done - self._last_bytes
+        self._speed = max(delta, 0)
+        self._bytes = bytes_done
+        self._last_bytes = bytes_done
+
+
+async def _add_mega_download_fallback(listener, path):
+    from mega import Mega as MegaPy
+    from ...ext_utils.files_utils import get_path_size
+
+    if get_mega_link_type(listener.link) != "file":
+        await listener.on_download_error(
+            "MEGA folder links require Mega SDK (not available on this setup)."
+        )
+        return
+
+    mega = MegaPy()
+    if (MEGA_EMAIL := Config.MEGA_EMAIL) and (MEGA_PASSWORD := Config.MEGA_PASSWORD):
+        mega.login(MEGA_EMAIL, MEGA_PASSWORD)
+    else:
+        mega.login()
+
+    info = {}
+    try:
+        info = mega.get_public_url_info(listener.link) or {}
+    except Exception:
+        info = {}
+
+    listener.name = listener.name or info.get("name", "mega_download")
+    listener.size = int(info.get("size", 0) or 0)
+    gid = token_hex(5)
+
+    msg, button = await stop_duplicate_check(listener)
+    if msg:
+        await listener.on_download_error(msg, button)
+        return
+
+    if listener.size:
+        if limit_exceeded := await limit_checker(listener):
+            await listener.on_download_error(limit_exceeded, is_limit=True)
+            return
+
+    added_to_queue, event = await check_running_tasks(listener)
+    if added_to_queue:
+        LOGGER.info(f"Added to Queue/Download: {listener.name}")
+        async with task_dict_lock:
+            task_dict[listener.mid] = QueueStatus(listener, gid, "Dl")
+        await listener.on_download_start()
+        if listener.multi <= 1:
+            await send_status_message(listener.message)
+        await event.wait()
+        if listener.is_cancelled:
+            return
+
+    progress = FallbackMegaProgress()
+    async with task_dict_lock:
+        task_dict[listener.mid] = MegaDownloadStatus(listener, progress, gid, "dl")
+
+    if added_to_queue:
+        LOGGER.info(f"Start Queued Download from Mega: {listener.name}")
+    else:
+        LOGGER.info(f"Download from Mega (fallback): {listener.name}")
+        await listener.on_download_start()
+        if listener.multi <= 1:
+            await send_status_message(listener.message)
+
+    await makedirs(path, exist_ok=True)
+    dest_path = Path(path)
+    expected_path = dest_path / listener.name if listener.name else None
+
+    loop = get_running_loop()
+    future = loop.run_in_executor(
+        None, mega.download_url, listener.link, str(dest_path), listener.name
+    )
+
+    while not future.done():
+        if expected_path and expected_path.exists():
+            progress.update(expected_path.stat().st_size)
+        await sleep(1)
+
+    try:
+        result_path = await future
+    except Exception as e:
+        await listener.on_download_error(str(e))
+        return
+
+    if not listener.size:
+        listener.size = await get_path_size(result_path)
+    progress.update(listener.size)
+    await listener.on_download_complete()
 
 
 async def add_mega_download(listener, path):
+    if not MEGA_SDK_AVAILABLE:
+        await _add_mega_download_fallback(listener, path)
+        return
+    from ...listeners.mega_listener import MegaAppListener, AsyncMega
+
     async_api = AsyncMega()
     async_api.api = api = MegaApi(None, None, None, "WZML-X")
     folder_api = None
