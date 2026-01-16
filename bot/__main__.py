@@ -429,9 +429,21 @@ async def start_cmd(client, message):
             strikes, banned = record_verify_strike(user.id)
             if banned:
                 return await message.reply("You are banned from verification.")
+            delete_verify_token(user.id, token_value)
+            ttl = _get_verif_int("TOKEN_TTL", TOKEN_TTL) or 600
+            new_token = create_verify_token(user.id, ttl)
+            username = await _get_bot_username(client)
+            start_param = f"verify-{user.id}-{new_token['token']}"
+            deep_link = f"https://t.me/{username}?start={urllib.parse.quote(start_param)}"
+            short_site = _get_verif_str("SHORTLINK_SITE", SHORTLINK_SITE)
+            short_api = _get_verif_str("SHORTLINK_API", SHORTLINK_API)
+            short_link = await asyncio.to_thread(_shorten_url, deep_link, short_site, short_api)
+            buttons = [[InlineKeyboardButton("Get New Token", url=short_link)]]
+            markup = InlineKeyboardMarkup(buttons)
             remaining = max(min_age - (now - int(token_info["created_at"])), 0)
             return await message.reply(
-                f"Token used too quickly. Wait {remaining}s. Warning {strikes}/3."
+                f"Token used too quickly. Wait {remaining}s. Warning {strikes}/3.",
+                reply_markup=markup,
             )
         set_verify_status(user.id, now)
         clear_verify_strikes(user.id)
