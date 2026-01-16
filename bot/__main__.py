@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 from contextlib import suppress
 from pathlib import Path
 
@@ -26,6 +27,9 @@ from .utils import is_mega_link, safe_link_from_text
 
 DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 UPLOAD_SEM = asyncio.Semaphore(CONCURRENT_UPLOADS)
+_TASK_COUNTER_DATE = None
+_TASK_COUNTER_VALUE = 0
+_TASK_COUNTER_LOCK = asyncio.Lock()
 
 
 def _authorized(message) -> bool:
@@ -46,6 +50,17 @@ async def _cleanup(path: Path):
         if child.is_dir():
             child.rmdir()
     path.rmdir()
+
+
+async def _next_daily_task_number() -> int:
+    global _TASK_COUNTER_DATE, _TASK_COUNTER_VALUE
+    async with _TASK_COUNTER_LOCK:
+        today = datetime.date.today()
+        if _TASK_COUNTER_DATE != today:
+            _TASK_COUNTER_DATE = today
+            _TASK_COUNTER_VALUE = 0
+        _TASK_COUNTER_VALUE += 1
+        return _TASK_COUNTER_VALUE
 
 
 async def _poll_download_progress(progress: ProgressMessage, dest: Path, total: int):
@@ -83,7 +98,8 @@ async def _run_leech(client: Client, message):
         return await message.reply("Send a MEGA link with /leech")
 
     status = await message.reply("Starting download...")
-    task_label = f"Task {message.id} | Downloading"
+    task_number = await _next_daily_task_number()
+    task_label = f"Task {task_number} | Downloading"
     progress = ProgressMessage(status, task_label, STATUS_UPDATE_INTERVAL)
 
     dest = DOWNLOAD_DIR / str(message.id)
