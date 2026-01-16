@@ -170,7 +170,7 @@ async def _send_verification_prompt(client: Client, message) -> None:
     if not user:
         return
     if is_user_banned(user.id):
-        await message.reply("You are banned from verification.")
+        await message.reply("You are banned from verification.", reply_markup=_support_button())
         return
     ttl = _get_verif_int("TOKEN_TTL", TOKEN_TTL) or 600
     token_info = create_verify_token(user.id, ttl)
@@ -200,6 +200,17 @@ async def _send_verification_prompt(client: Client, message) -> None:
         await message.reply_text(text, reply_markup=markup)
 
 
+def _support_button() -> InlineKeyboardMarkup | None:
+    support_id = _get_verif_str("SUPPORT_ID", "")
+    if not support_id:
+        return None
+    if not support_id.startswith("@"):
+        support_id = f"@{support_id}"
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Contact Admin", url=f"https://t.me/{support_id.lstrip('@')}")]]
+    )
+
+
 async def verification_gate(client: Client, message):
     if not message.from_user:
         return
@@ -210,7 +221,7 @@ async def verification_gate(client: Client, message):
         if cmd in {"start", "help", "ping", "settings"}:
             return
     if is_user_banned(message.from_user.id):
-        await message.reply("You are banned from verification.")
+        await message.reply("You are banned from verification.", reply_markup=_support_button())
         raise StopPropagation
     if not _is_verified_user(message.from_user.id):
         await _send_verification_prompt(client, message)
@@ -432,7 +443,9 @@ async def start_cmd(client, message):
         if token_user_id != user.id:
             return await message.reply("This token is not for your account.")
         if is_user_banned(user.id):
-            return await message.reply("You are banned from verification.")
+            return await message.reply(
+                "You are banned from verification.", reply_markup=_support_button()
+            )
         token_info = get_verify_token(user.id, token_value)
         if not token_info:
             return await message.reply("Invalid or expired token.")
@@ -445,7 +458,11 @@ async def start_cmd(client, message):
             strikes, banned = record_verify_strike(user.id)
             if banned:
                 await _notify_ban(client, user.id)
-                return await message.reply("You are banned from verification.")
+                await message.reply(
+                    "You are banned from verification.",
+                    reply_markup=_support_button(),
+                )
+                return
             delete_verify_token(user.id, token_value)
             ttl = _get_verif_int("TOKEN_TTL", TOKEN_TTL) or 600
             new_token = create_verify_token(user.id, ttl)
@@ -459,7 +476,7 @@ async def start_cmd(client, message):
             markup = InlineKeyboardMarkup(buttons)
             remaining = max(min_age - (now - int(token_info["created_at"])), 0)
             return await message.reply(
-                "Nice try champ. Ab jaake YouTube se 'How to bypass' dekh. Warning 1/1.",
+                "Nice try champ. Ab jaake YouTube se 'How to bypass' dekh. Warning 1/2.",
                 reply_markup=markup,
             )
         set_verify_status(user.id, now)
@@ -603,6 +620,7 @@ async def bsetting_cmd(_, message):
         "VERIFY_TUTORIAL",
         "SHORTLINK_SITE",
         "SHORTLINK_API",
+        "SUPPORT_ID",
     }
     if len(parts) == 1 or parts[1].lower() == "show":
         values = [
@@ -613,6 +631,7 @@ async def bsetting_cmd(_, message):
             f"VERIFY_TUTORIAL: {_get_verif_str('VERIFY_TUTORIAL', VERIFY_TUTORIAL) or 'none'}",
             f"SHORTLINK_SITE: {_get_verif_str('SHORTLINK_SITE', SHORTLINK_SITE) or 'none'}",
             f"SHORTLINK_API: {_get_verif_str('SHORTLINK_API', SHORTLINK_API) or 'none'}",
+            f"SUPPORT_ID: {_get_verif_str('SUPPORT_ID', '') or 'none'}",
         ]
         return await message.reply("Verification settings:\n" + "\n".join(values))
 

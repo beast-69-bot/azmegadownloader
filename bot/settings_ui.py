@@ -41,6 +41,7 @@ BSETTING_KEYS = [
     "VERIFY_TUTORIAL",
     "SHORTLINK_SITE",
     "SHORTLINK_API",
+    "SUPPORT_ID",
 ]
 
 
@@ -109,6 +110,7 @@ def _get_verif_value(key: str) -> str:
         "VERIFY_TUTORIAL": VERIFY_TUTORIAL,
         "SHORTLINK_SITE": SHORTLINK_SITE,
         "SHORTLINK_API": SHORTLINK_API,
+        "SUPPORT_ID": "",
     }
     return defaults.get(key, "")
 
@@ -139,6 +141,9 @@ def _bsetting_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("SHORTLINK_SITE", callback_data="bsetting:SHORTLINK_SITE"),
             InlineKeyboardButton("SHORTLINK_API", callback_data="bsetting:SHORTLINK_API"),
+        ],
+        [
+            InlineKeyboardButton("SUPPORT_ID", callback_data="bsetting:SUPPORT_ID"),
         ],
         [InlineKeyboardButton("CLOSE", callback_data="bsetting:close")],
     ]
