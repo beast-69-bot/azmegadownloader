@@ -107,3 +107,25 @@ def set_global_setting(key: str, value: str) -> None:
             (key, value),
         )
         conn.commit()
+
+
+def get_admin_ids() -> set[int]:
+    raw = get_global_setting("admin_user_ids")
+    ids = set()
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            ids.add(int(part))
+    return ids
+
+
+def add_admin_id(user_id: int) -> None:
+    admins = get_admin_ids()
+    admins.add(user_id)
+    set_global_setting("admin_user_ids", ",".join(str(x) for x in sorted(admins)))
+
+
+def remove_admin_id(user_id: int) -> None:
+    admins = get_admin_ids()
+    admins.discard(user_id)
+    set_global_setting("admin_user_ids", ",".join(str(x) for x in sorted(admins)))

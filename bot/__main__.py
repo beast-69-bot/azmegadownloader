@@ -25,9 +25,12 @@ from .progress import ProgressMessage
 from .uploader import TaskCancelledUpload, upload_path
 from .utils import is_mega_link, safe_link_from_text
 from .settings_db import (
+    add_admin_id,
+    get_admin_ids,
     get_global_setting,
     get_settings,
     parse_chat_target,
+    remove_admin_id,
     set_global_setting,
 )
 from .settings_ui import register_settings_handlers, settings_command
@@ -65,8 +68,8 @@ def _authorized(message) -> bool:
 def _is_admin(message) -> bool:
     if OWNER_ID and message.from_user and message.from_user.id == OWNER_ID:
         return True
-    if not OWNER_ID and AUTHORIZED_CHAT_IDS:
-        return message.chat.id in AUTHORIZED_CHAT_IDS
+    if message.from_user and message.from_user.id in get_admin_ids():
+        return True
     return False
 
 
@@ -80,6 +83,18 @@ async def _resolve_channel_id(client: Client, raw: str) -> int:
         raw = f"@{raw}"
     chat = await client.get_chat(raw)
     return int(chat.id)
+
+
+async def _resolve_user_id(client: Client, raw: str) -> int:
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError("Missing user id")
+    if raw.lstrip("-").isdigit():
+        return int(raw)
+    if not raw.startswith("@"):
+        raw = f"@{raw}"
+    user = await client.get_users(raw)
+    return int(user.id)
 
 
 async def _cleanup(path: Path):
@@ -302,7 +317,7 @@ async def setlogchannel_cmd(client, message):
     except Exception:
         return await message.reply("Invalid channel id or username.")
     set_global_setting("log_channel_id", str(channel_id))
-    await message.reply(f"✅ Log channel set to {channel_id}")
+    await message.reply(f"OK. Log channel set to {channel_id}")
 
 
 async def settaskchannel_cmd(client, message):
@@ -316,7 +331,44 @@ async def settaskchannel_cmd(client, message):
     except Exception:
         return await message.reply("Invalid channel id or username.")
     set_global_setting("task_channel_id", str(channel_id))
-    await message.reply(f"✅ Task channel set to {channel_id}")
+    await message.reply(f"OK. Task channel set to {channel_id}")
+
+
+async def addadmin_cmd(client, message):
+    if not (OWNER_ID and message.from_user and message.from_user.id == OWNER_ID):
+        return await message.reply("Unauthorized")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /addadmin <user_id or @username>")
+    try:
+        user_id = await _resolve_user_id(client, parts[1])
+    except Exception:
+        return await message.reply("Invalid user id or username.")
+    add_admin_id(user_id)
+    await message.reply(f"Admin added: {user_id}")
+
+
+async def deladmin_cmd(client, message):
+    if not (OWNER_ID and message.from_user and message.from_user.id == OWNER_ID):
+        return await message.reply("Unauthorized")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /deladmin <user_id or @username>")
+    try:
+        user_id = await _resolve_user_id(client, parts[1])
+    except Exception:
+        return await message.reply("Invalid user id or username.")
+    remove_admin_id(user_id)
+    await message.reply(f"Admin removed: {user_id}")
+
+
+async def listadmins_cmd(_, message):
+    if not (OWNER_ID and message.from_user and message.from_user.id == OWNER_ID):
+        return await message.reply("Unauthorized")
+    admins = sorted(get_admin_ids())
+    if not admins:
+        return await message.reply("No admins set.")
+    await message.reply("Admins:\n" + "\n".join(str(x) for x in admins))
 
 
 def main():
@@ -335,6 +387,9 @@ def main():
     app.add_handler(MessageHandler(settings_cmd, filters.command("settings")))
     app.add_handler(MessageHandler(setlogchannel_cmd, filters.command("setlogchannel")))
     app.add_handler(MessageHandler(settaskchannel_cmd, filters.command("settaskchannel")))
+    app.add_handler(MessageHandler(addadmin_cmd, filters.command("addadmin")))
+    app.add_handler(MessageHandler(deladmin_cmd, filters.command("deladmin")))
+    app.add_handler(MessageHandler(listadmins_cmd, filters.command("listadmins")))
     register_settings_handlers(app)
 
     LOGGER.info("Mega leech bot started")
