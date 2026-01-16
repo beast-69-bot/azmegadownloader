@@ -24,7 +24,12 @@ from .mega_download import download_mega_url, get_mega_total_size
 from .progress import ProgressMessage
 from .uploader import TaskCancelledUpload, upload_path
 from .utils import is_mega_link, safe_link_from_text
-from .settings_db import get_settings, parse_chat_target
+from .settings_db import (
+    get_global_setting,
+    get_settings,
+    parse_chat_target,
+    set_global_setting,
+)
 from .settings_ui import register_settings_handlers, settings_command
 
 DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
@@ -55,6 +60,26 @@ def _authorized(message) -> bool:
     if not AUTHORIZED_CHAT_IDS:
         return True
     return message.chat.id in AUTHORIZED_CHAT_IDS
+
+
+def _is_admin(message) -> bool:
+    if OWNER_ID and message.from_user and message.from_user.id == OWNER_ID:
+        return True
+    if not OWNER_ID and AUTHORIZED_CHAT_IDS:
+        return message.chat.id in AUTHORIZED_CHAT_IDS
+    return False
+
+
+async def _resolve_channel_id(client: Client, raw: str) -> int:
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError("Missing channel id")
+    if raw.lstrip("-").isdigit():
+        return int(raw)
+    if not raw.startswith("@"):
+        raw = f"@{raw}"
+    chat = await client.get_chat(raw)
+    return int(chat.id)
 
 
 async def _cleanup(path: Path):
@@ -115,6 +140,17 @@ async def _run_leech(client: Client, message):
         return await message.reply("Send a MEGA link with /leech")
 
     status = await message.reply("Starting download...")
+    task_log_channel = get_global_setting("task_channel_id")
+    if task_log_channel:
+        try:
+            user = message.from_user
+            uname = f"@{user.username}" if user and user.username else "unknown"
+            await client.send_message(
+                int(task_log_channel),
+                f"New task from {uname} ({user.id if user else 0}): {link}",
+            )
+        except Exception:
+            pass
     task_number = await _next_daily_task_number()
     task_state = TaskState(task_number, message.from_user.id if message.from_user else 0)
     task_state.message = status
@@ -205,6 +241,17 @@ async def _run_leech(client: Client, message):
 
 async def start_cmd(_, message):
     await message.reply("MEGA leech bot is running. Use /leech <mega link>.")
+    log_channel = get_global_setting("log_channel_id")
+    if log_channel:
+        try:
+            user = message.from_user
+            uname = f"@{user.username}" if user and user.username else "unknown"
+            await message._client.send_message(
+                int(log_channel),
+                f"New user started: {uname} ({user.id if user else 0})",
+            )
+        except Exception:
+            pass
 
 
 async def help_cmd(_, message):
@@ -244,6 +291,34 @@ async def cancel_cmd(_, message):
     return
 
 
+async def setlogchannel_cmd(client, message):
+    if not _is_admin(message):
+        return await message.reply("Unauthorized")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /setlogchannel <channel_id or @username>")
+    try:
+        channel_id = await _resolve_channel_id(client, parts[1])
+    except Exception:
+        return await message.reply("Invalid channel id or username.")
+    set_global_setting("log_channel_id", str(channel_id))
+    await message.reply(f"✅ Log channel set to {channel_id}")
+
+
+async def settaskchannel_cmd(client, message):
+    if not _is_admin(message):
+        return await message.reply("Unauthorized")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /settaskchannel <channel_id or @username>")
+    try:
+        channel_id = await _resolve_channel_id(client, parts[1])
+    except Exception:
+        return await message.reply("Invalid channel id or username.")
+    set_global_setting("task_channel_id", str(channel_id))
+    await message.reply(f"✅ Task channel set to {channel_id}")
+
+
 def main():
     app = Client(
         "mega_leech_bot",
@@ -258,6 +333,8 @@ def main():
     app.add_handler(MessageHandler(leech_cmd, filters.command("leech")))
     app.add_handler(MessageHandler(cancel_cmd, filters.command("cancel")))
     app.add_handler(MessageHandler(settings_cmd, filters.command("settings")))
+    app.add_handler(MessageHandler(setlogchannel_cmd, filters.command("setlogchannel")))
+    app.add_handler(MessageHandler(settaskchannel_cmd, filters.command("settaskchannel")))
     register_settings_handlers(app)
 
     LOGGER.info("Mega leech bot started")

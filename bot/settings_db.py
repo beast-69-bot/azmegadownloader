@@ -24,6 +24,14 @@ def _ensure_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS global_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
         conn.commit()
 
 
@@ -75,3 +83,27 @@ def parse_chat_target(value: str) -> tuple[int | None, int | None]:
     if value.lstrip("-").isdigit():
         return int(value), None
     return None, None
+
+
+def get_global_setting(key: str) -> str:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT value FROM global_settings WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return row[0] if row else ""
+
+
+def set_global_setting(key: str, value: str) -> None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO global_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+        conn.commit()
