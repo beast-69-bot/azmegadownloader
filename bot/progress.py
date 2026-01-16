@@ -30,6 +30,14 @@ def _fmt_time(seconds: float) -> str:
     return f"{s}s"
 
 
+def _progress_bar(done: int, total: int, width: int = 12) -> str:
+    if total <= 0:
+        return "[" + ("." * width) + "]"
+    ratio = min(max(done / total, 0), 1)
+    filled = int(ratio * width)
+    return "[" + ("#" * filled) + ("." * (width - filled)) + "]"
+
+
 class ProgressMessage:
     def __init__(self, message, label: str, update_interval: int = 5):
         self._message = message
@@ -48,11 +56,13 @@ class ProgressMessage:
                 return
             self._last_update = now
             percent = f"{(done / total * 100):.1f}%" if total else "--"
+            bar = _progress_bar(done, total)
             text = (
                 f"{self._label}\n"
-                f"- Done: {_fmt_bytes(done)} / {_fmt_bytes(total)} ({percent})\n"
-                f"- Speed: {_fmt_bytes(speed)}/s\n"
-                f"- ETA: {_fmt_eta(done, total, speed)}"
+                f"{bar} {percent}\n"
+                f"Processed: {_fmt_bytes(done)} / {_fmt_bytes(total)}\n"
+                f"Speed: {_fmt_bytes(speed)}/s\n"
+                f"ETA: {_fmt_eta(done, total, speed)}"
             )
             await self._message.edit_text(text)
 
