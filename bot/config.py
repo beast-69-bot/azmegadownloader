@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -41,11 +40,6 @@ CONCURRENT_UPLOADS = int(_get("CONCURRENT_UPLOADS", 2) or 2)
 
 AUTHORIZED_CHATS = _get("AUTHORIZED_CHATS", "")
 SUDO_USERS = _get("SUDO_USERS", "")
-MONGO_URI = os.getenv("MONGO_URI", _get("MONGO_URI", ""))
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", _get("MONGO_DB_NAME", "sudo detail"))
-MONGO_COLLECTION_NAME = os.getenv(
-    "MONGO_COLLECTION_NAME", _get("MONGO_COLLECTION_NAME", "mega bot detail")
-)
 VERIFY_EXPIRE = int(_get("VERIFY_EXPIRE", 0) or 0)
 TOKEN_TTL = int(_get("TOKEN_TTL", 0) or 0)
 MIN_TOKEN_AGE = int(_get("MIN_TOKEN_AGE", 0) or 0)

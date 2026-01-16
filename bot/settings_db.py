@@ -4,7 +4,6 @@ import sqlite3
 import time
 import secrets
 from pathlib import Path
-from pymongo import MongoClient
 
 DEFAULT_SETTINGS = {
     "chat_id": "",
@@ -13,8 +12,6 @@ DEFAULT_SETTINGS = {
 }
 
 DB_PATH = Path(__file__).resolve().parent.parent / "settings.db"
-_MONGO_CLIENT = None
-_MONGO_COLL = None
 
 
 def _ensure_db() -> None:
@@ -142,31 +139,7 @@ def set_global_setting(key: str, value: str) -> None:
         conn.commit()
 
 
-def _get_mongo_collection():
-    global _MONGO_CLIENT, _MONGO_COLL
-    if _MONGO_COLL is not None:
-        return _MONGO_COLL
-    try:
-        from .config import MONGO_COLLECTION_NAME, MONGO_DB_NAME, MONGO_URI
-    except Exception:
-        return None
-    if not MONGO_URI:
-        return None
-    try:
-        _MONGO_CLIENT = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-        _MONGO_CLIENT.admin.command("ping")
-        _MONGO_COLL = _MONGO_CLIENT[MONGO_DB_NAME][MONGO_COLLECTION_NAME]
-        return _MONGO_COLL
-    except Exception:
-        return None
-
-
 def get_admin_ids() -> set[int]:
-    coll = _get_mongo_collection()
-    if coll:
-        doc = coll.find_one({"_id": "admin_user_ids"}) or {}
-        ids = doc.get("value") or []
-        return {int(x) for x in ids if str(x).lstrip("-").isdigit()}
     raw = get_global_setting("admin_user_ids")
     ids = set()
     for part in (raw or "").split(","):
@@ -177,28 +150,12 @@ def get_admin_ids() -> set[int]:
 
 
 def add_admin_id(user_id: int) -> None:
-    coll = _get_mongo_collection()
-    if coll:
-        coll.update_one(
-            {"_id": "admin_user_ids"},
-            {"$addToSet": {"value": int(user_id)}},
-            upsert=True,
-        )
-        return
     admins = get_admin_ids()
     admins.add(user_id)
     set_global_setting("admin_user_ids", ",".join(str(x) for x in sorted(admins)))
 
 
 def remove_admin_id(user_id: int) -> None:
-    coll = _get_mongo_collection()
-    if coll:
-        coll.update_one(
-            {"_id": "admin_user_ids"},
-            {"$pull": {"value": int(user_id)}},
-            upsert=True,
-        )
-        return
     admins = get_admin_ids()
     admins.discard(user_id)
     set_global_setting("admin_user_ids", ",".join(str(x) for x in sorted(admins)))
