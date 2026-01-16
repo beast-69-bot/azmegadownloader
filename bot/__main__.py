@@ -83,7 +83,8 @@ async def _run_leech(client: Client, message):
         return await message.reply("Send a MEGA link with /leech")
 
     status = await message.reply("Starting download...")
-    progress = ProgressMessage(status, "Downloading", STATUS_UPDATE_INTERVAL)
+    task_label = f"Task {message.id} | Downloading"
+    progress = ProgressMessage(status, task_label, STATUS_UPDATE_INTERVAL)
 
     dest = DOWNLOAD_DIR / str(message.id)
     total_size = 0
