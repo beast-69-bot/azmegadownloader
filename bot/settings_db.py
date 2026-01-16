@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import time
+import secrets
 from pathlib import Path
 
 DEFAULT_SETTINGS = {
@@ -29,6 +31,34 @@ def _ensure_db() -> None:
             CREATE TABLE IF NOT EXISTS global_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verify_status (
+                user_id INTEGER PRIMARY KEY,
+                verify_status_ts INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verify_tokens (
+                user_id INTEGER,
+                token TEXT,
+                created_at INTEGER,
+                expire_at INTEGER,
+                PRIMARY KEY (user_id, token)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verify_bans (
+                user_id INTEGER PRIMARY KEY,
+                strikes INTEGER,
+                banned INTEGER
             )
             """
         )
@@ -129,3 +159,124 @@ def remove_admin_id(user_id: int) -> None:
     admins = get_admin_ids()
     admins.discard(user_id)
     set_global_setting("admin_user_ids", ",".join(str(x) for x in sorted(admins)))
+
+
+def create_verify_token(user_id: int, ttl: int) -> dict:
+    _ensure_db()
+    token = secrets.token_urlsafe(10)
+    now = int(time.time())
+    expire_at = now + max(int(ttl or 0), 0)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO verify_tokens (user_id, token, created_at, expire_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, token, now, expire_at),
+        )
+        conn.commit()
+    return {"token": token, "created_at": now, "expire_at": expire_at}
+
+
+def get_verify_token(user_id: int, token: str) -> dict | None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT token, created_at, expire_at
+            FROM verify_tokens
+            WHERE user_id = ? AND token = ?
+            """,
+            (user_id, token),
+        ).fetchone()
+    if not row:
+        return None
+    return {"token": row[0], "created_at": row[1], "expire_at": row[2]}
+
+
+def delete_verify_token(user_id: int, token: str) -> None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "DELETE FROM verify_tokens WHERE user_id = ? AND token = ?",
+            (user_id, token),
+        )
+        conn.commit()
+
+
+def clear_verify_tokens(user_id: int) -> None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM verify_tokens WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def set_verify_status(user_id: int, ts: int | None = None) -> None:
+    _ensure_db()
+    ts = int(ts or time.time())
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO verify_status (user_id, verify_status_ts)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET verify_status_ts = excluded.verify_status_ts
+            """,
+            (user_id, ts),
+        )
+        conn.commit()
+
+
+def get_verify_status(user_id: int) -> int | None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT verify_status_ts FROM verify_status WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return int(row[0]) if row else None
+
+
+def clear_verify_status(user_id: int) -> None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM verify_status WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def record_verify_strike(user_id: int) -> tuple[int, bool]:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT strikes, banned FROM verify_bans WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        strikes = int(row[0]) if row else 0
+        strikes += 1
+        banned = 1 if strikes >= 3 else 0
+        conn.execute(
+            """
+            INSERT INTO verify_bans (user_id, strikes, banned)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET strikes = excluded.strikes, banned = excluded.banned
+            """,
+            (user_id, strikes, banned),
+        )
+        conn.commit()
+    return strikes, bool(banned)
+
+
+def clear_verify_strikes(user_id: int) -> None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM verify_bans WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def is_user_banned(user_id: int) -> bool:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT banned FROM verify_bans WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return bool(row and int(row[0]))
