@@ -22,7 +22,7 @@ from .config import (
 )
 from .mega_download import download_mega_url, get_mega_total_size
 from .progress import ProgressMessage
-from .uploader import upload_path
+from .uploader import TaskCancelledUpload, upload_path
 from .utils import is_mega_link, safe_link_from_text
 
 DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
@@ -30,6 +30,21 @@ UPLOAD_SEM = asyncio.Semaphore(CONCURRENT_UPLOADS)
 _TASK_COUNTER_DATE = None
 _TASK_COUNTER_VALUE = 0
 _TASK_COUNTER_LOCK = asyncio.Lock()
+_ACTIVE_TASKS: dict[int, "TaskState"] = {}
+
+
+class TaskCancelled(Exception):
+    pass
+
+
+class TaskState:
+    def __init__(self, task_id: int, owner_user_id: int):
+        self.task_id = task_id
+        self.owner_user_id = owner_user_id
+        self.cancel_event = asyncio.Event()
+        self.task: asyncio.Task | None = None
+        self.message = None
+        self.dest: Path | None = None
 
 
 def _authorized(message) -> bool:
@@ -99,10 +114,22 @@ async def _run_leech(client: Client, message):
 
     status = await message.reply("Starting download...")
     task_number = await _next_daily_task_number()
-    task_label = f"Task {task_number} | Downloading"
-    progress = ProgressMessage(status, task_label, STATUS_UPDATE_INTERVAL)
+    task_state = TaskState(task_number, message.from_user.id if message.from_user else 0)
+    task_state.message = status
+    _ACTIVE_TASKS[task_number] = task_state
+
+    task_label = f"{task_number} | Downloading"
+    progress = ProgressMessage(
+        status,
+        task_label,
+        "Downloading",
+        "#Mega -> #Leech",
+        task_number,
+        STATUS_UPDATE_INTERVAL,
+    )
 
     dest = DOWNLOAD_DIR / str(message.id)
+    task_state.dest = dest
     total_size = 0
     try:
         total_size = await get_mega_total_size(link)
@@ -113,11 +140,28 @@ async def _run_leech(client: Client, message):
     try:
         poll_task = asyncio.create_task(_poll_download_progress(progress, dest, total_size))
         try:
-            files = await download_mega_url(link, str(dest))
+            download_task = asyncio.create_task(download_mega_url(link, str(dest)))
+            task_state.task = download_task
+            cancel_wait = asyncio.create_task(task_state.cancel_event.wait())
+            done, _pending = await asyncio.wait(
+                {download_task, cancel_wait},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if cancel_wait in done:
+                download_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await download_task
+                raise TaskCancelled
+            files = await download_task
         finally:
             poll_task.cancel()
             with suppress(asyncio.CancelledError):
                 await poll_task
+    except TaskCancelled:
+        await status.edit_text(f"❌ Task {task_number} cancelled by user.")
+        await _cleanup(dest)
+        _ACTIVE_TASKS.pop(task_number, None)
+        return
     except Exception as e:
         LOGGER.error(f"Download failed: {e}")
         await status.edit_text(f"Download failed: {e}")
@@ -131,14 +175,26 @@ async def _run_leech(client: Client, message):
     await UPLOAD_SEM.acquire()
     try:
         for file_path in files:
-            await upload_path(client, message.chat.id, Path(file_path), status)
+            if task_state.cancel_event.is_set():
+                raise TaskCancelled
+            await upload_path(
+                client,
+                message.chat.id,
+                Path(file_path),
+                status,
+                task_number,
+                task_state.cancel_event,
+            )
         await status.edit_text("Leech complete.")
+    except (TaskCancelled, TaskCancelledUpload):
+        await status.edit_text(f"❌ Task {task_number} cancelled by user.")
     except Exception as e:
         LOGGER.error(f"Upload failed: {e}")
         await status.edit_text(f"Upload failed: {e}")
     finally:
         UPLOAD_SEM.release()
         await _cleanup(dest)
+        _ACTIVE_TASKS.pop(task_number, None)
 
 
 async def start_cmd(_, message):
@@ -159,6 +215,23 @@ async def leech_cmd(client, message):
     await _run_leech(client, message)
 
 
+async def cancel_cmd(_, message):
+    task_id = 0
+    if message.text:
+        parts = message.text.split(maxsplit=1)
+        if len(parts) > 1 and parts[1].isdigit():
+            task_id = int(parts[1])
+
+    task_state = _ACTIVE_TASKS.get(task_id)
+    if not task_state:
+        return await message.reply("No active task found.")
+    if message.from_user and task_state.owner_user_id != message.from_user.id:
+        return await message.reply("❌ You can only cancel your own task.")
+
+    task_state.cancel_event.set()
+    return
+
+
 def main():
     app = Client(
         "mega_leech_bot",
@@ -171,6 +244,7 @@ def main():
     app.add_handler(MessageHandler(help_cmd, filters.command("help")))
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")))
     app.add_handler(MessageHandler(leech_cmd, filters.command("leech")))
+    app.add_handler(MessageHandler(cancel_cmd, filters.command("cancel")))
 
     LOGGER.info("Mega leech bot started")
     app.run()

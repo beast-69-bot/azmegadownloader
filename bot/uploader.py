@@ -10,19 +10,37 @@ from .progress import ProgressMessage
 from .utils import iter_files
 
 
-async def upload_path(client, chat_id: int, root: Path, status_message):
+class TaskCancelledUpload(Exception):
+    pass
+
+
+async def upload_path(
+    client,
+    chat_id: int,
+    root: Path,
+    status_message,
+    task_id: int,
+    cancel_event: asyncio.Event | None = None,
+):
     files = list(iter_files(root))
     if not files:
         raise RuntimeError("No files to upload")
 
     for index, file_path in enumerate(files, start=1):
+        label = f"{task_id} | Uploading {file_path.name} ({index}/{len(files)})"
+        stage = f"Uploading {file_path.name} ({index}/{len(files)})"
         progress = ProgressMessage(
             status_message,
-            f"Uploading {file_path.name} ({index}/{len(files)})",
+            label,
+            stage,
+            "#Upload -> #Telegram",
+            task_id,
             STATUS_UPDATE_INTERVAL,
         )
 
         async def _progress(current, total):
+            if cancel_event and cancel_event.is_set():
+                raise TaskCancelledUpload
             speed = 0
             if total:
                 speed = current / max(1, STATUS_UPDATE_INTERVAL)

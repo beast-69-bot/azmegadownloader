@@ -30,18 +30,29 @@ def _fmt_time(seconds: float) -> str:
     return f"{s}s"
 
 
-def _progress_bar(done: int, total: int, width: int = 12) -> str:
+def _progress_bar(done: int, total: int, width: int = 20) -> str:
     if total <= 0:
-        return "[" + ("." * width) + "]"
+        return "░" * width
     ratio = min(max(done / total, 0), 1)
     filled = int(ratio * width)
-    return "[" + ("#" * filled) + ("." * (width - filled)) + "]"
+    return ("█" * filled) + ("░" * (width - filled))
 
 
 class ProgressMessage:
-    def __init__(self, message, label: str, update_interval: int = 5):
+    def __init__(
+        self,
+        message,
+        label: str,
+        stage: str,
+        action: str,
+        task_id: int,
+        update_interval: int = 5,
+    ):
         self._message = message
         self._label = label
+        self._stage = stage
+        self._action = action
+        self._task_id = task_id
         self._update_interval = update_interval
         self._last_update = 0.0
         self._start = time.time()
@@ -56,19 +67,32 @@ class ProgressMessage:
             if now - self._last_update < self._update_interval:
                 return
             self._last_update = now
-            percent = f"{(done / total * 100):.1f}%" if total else "--"
+            percent_value = (done / total * 100) if total else 0.0
+            percent = f"{percent_value:05.2f}"
             bar = _progress_bar(done, total)
+            elapsed = _fmt_time(time.time() - self._start)
+            est_total = "--"
+            if speed > 0 and total > 0:
+                est_total = _fmt_time(total / speed)
             text = (
-                f"{self._label}\n"
-                f"{bar} {percent}\n"
-                f"Processed: {_fmt_bytes(done)} / {_fmt_bytes(total)}\n"
-                f"Speed: {_fmt_bytes(speed)}/s\n"
-                f"ETA: {_fmt_eta(done, total, speed)}"
+                "<pre>"
+                f"🚀 1. Task {self._label}\n"
+                "\n"
+                f"[ {self._stage}... ]\n"
+                f"[ {bar} ] {percent}%\n"
+                f"Progress   : {percent}%\n"
+                f"Processed  : {_fmt_bytes(done)} / {_fmt_bytes(total)}\n"
+                f"Speed      : {_fmt_bytes(speed)}/s\n"
+                f"Time       : {elapsed} / {est_total}  (ETA {_fmt_eta(done, total, speed)})\n"
+                "\n"
+                f"Action     : {self._action}\n"
+                f"Cancel     : /cancel {self._task_id}"
+                "</pre>"
             )
             if text == self._last_text:
                 return
             self._last_text = text
-            await self._message.edit_text(text)
+            await self._message.edit_text(text, parse_mode="html")
 
     async def finalize(self, text: str):
         async with self._lock:
