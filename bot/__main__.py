@@ -24,6 +24,8 @@ from .mega_download import download_mega_url, get_mega_total_size
 from .progress import ProgressMessage
 from .uploader import TaskCancelledUpload, upload_path
 from .utils import is_mega_link, safe_link_from_text
+from .settings_db import get_settings, parse_chat_target
+from .settings_ui import register_settings_handlers, settings_command
 
 DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 UPLOAD_SEM = asyncio.Semaphore(CONCURRENT_UPLOADS)
@@ -128,6 +130,7 @@ async def _run_leech(client: Client, message):
         STATUS_UPDATE_INTERVAL,
     )
 
+    user_settings = get_settings(task_state.owner_user_id)
     dest = DOWNLOAD_DIR / str(message.id)
     task_state.dest = dest
     total_size = 0
@@ -158,7 +161,7 @@ async def _run_leech(client: Client, message):
             with suppress(asyncio.CancelledError):
                 await poll_task
     except TaskCancelled:
-        await status.edit_text(f"❌ Task {task_number} cancelled by user.")
+        await status.edit_text(f"Task {task_number} cancelled by user.")
         await _cleanup(dest)
         _ACTIVE_TASKS.pop(task_number, None)
         return
@@ -177,17 +180,20 @@ async def _run_leech(client: Client, message):
         for file_path in files:
             if task_state.cancel_event.is_set():
                 raise TaskCancelled
+            target_chat_id, topic_id = parse_chat_target(user_settings.get("chat_id", ""))
             await upload_path(
                 client,
-                message.chat.id,
+                target_chat_id or message.chat.id,
                 Path(file_path),
                 status,
                 task_number,
                 task_state.cancel_event,
+                task_state.owner_user_id,
+                topic_id,
             )
         await status.edit_text("Leech complete.")
     except (TaskCancelled, TaskCancelledUpload):
-        await status.edit_text(f"❌ Task {task_number} cancelled by user.")
+        await status.edit_text(f"Task {task_number} cancelled by user.")
     except Exception as e:
         LOGGER.error(f"Upload failed: {e}")
         await status.edit_text(f"Upload failed: {e}")
@@ -203,7 +209,9 @@ async def start_cmd(_, message):
 
 async def help_cmd(_, message):
     await message.reply(
-        "Commands:\n/leech <mega link> - download and upload to Telegram\n/ping - check bot"
+        "Commands:\n/leech <mega link> - download and upload to Telegram\n"
+        "/settings - customize leech settings\n"
+        "/ping - check bot"
     )
 
 
@@ -213,6 +221,10 @@ async def ping_cmd(_, message):
 
 async def leech_cmd(client, message):
     await _run_leech(client, message)
+
+
+async def settings_cmd(client, message):
+    await settings_command(client, message)
 
 
 async def cancel_cmd(_, message):
@@ -226,7 +238,7 @@ async def cancel_cmd(_, message):
     if not task_state:
         return await message.reply("No active task found.")
     if message.from_user and task_state.owner_user_id != message.from_user.id:
-        return await message.reply("❌ You can only cancel your own task.")
+        return await message.reply("You can only cancel your own task.")
 
     task_state.cancel_event.set()
     return
@@ -245,6 +257,8 @@ def main():
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")))
     app.add_handler(MessageHandler(leech_cmd, filters.command("leech")))
     app.add_handler(MessageHandler(cancel_cmd, filters.command("cancel")))
+    app.add_handler(MessageHandler(settings_cmd, filters.command("settings")))
+    register_settings_handlers(app)
 
     LOGGER.info("Mega leech bot started")
     app.run()
