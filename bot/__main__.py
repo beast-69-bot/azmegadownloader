@@ -19,7 +19,7 @@ from .config import (
     TELEGRAM_API,
     TELEGRAM_HASH,
 )
-from .mega_download import download_mega_url
+from .mega_download import download_mega_url, get_mega_total_size
 from .progress import ProgressMessage
 from .uploader import upload_path
 from .utils import is_mega_link, safe_link_from_text
@@ -48,23 +48,23 @@ async def _cleanup(path: Path):
     path.rmdir()
 
 
-async def _poll_download_progress(progress: ProgressMessage, dest: Path):
+async def _poll_download_progress(progress: ProgressMessage, dest: Path, total: int):
     last = 0
     while True:
         await asyncio.sleep(STATUS_UPDATE_INTERVAL)
-        total = 0
+        done = 0
         if dest.exists():
             for child in dest.rglob("*"):
                 if child.is_file():
                     try:
-                        total += child.stat().st_size
+                        done += child.stat().st_size
                     except FileNotFoundError:
                         continue
         speed = 0
         if STATUS_UPDATE_INTERVAL:
-            speed = max(total - last, 0) / STATUS_UPDATE_INTERVAL
-        last = total
-        await progress.update(total, 0, speed)
+            speed = max(done - last, 0) / STATUS_UPDATE_INTERVAL
+        last = done
+        await progress.update(done, total, speed)
 
 
 async def _run_leech(client: Client, message):
@@ -86,10 +86,15 @@ async def _run_leech(client: Client, message):
     progress = ProgressMessage(status, "Downloading", STATUS_UPDATE_INTERVAL)
 
     dest = DOWNLOAD_DIR / str(message.id)
+    total_size = 0
+    try:
+        total_size = await get_mega_total_size(link)
+    except Exception as e:
+        LOGGER.warning(f"Unable to get MEGA size: {e}")
 
     await DOWNLOAD_SEM.acquire()
     try:
-        poll_task = asyncio.create_task(_poll_download_progress(progress, dest))
+        poll_task = asyncio.create_task(_poll_download_progress(progress, dest, total_size))
         try:
             files = await download_mega_url(link, str(dest))
         finally:

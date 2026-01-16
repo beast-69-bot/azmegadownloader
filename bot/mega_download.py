@@ -181,6 +181,27 @@ def _build_public_paths(nodes: dict[str, dict]) -> list[tuple[dict, Path]]:
     return items
 
 
+def _fetch_public_folder_listing(mega: Mega, folder_id: str) -> dict:
+    url = f"{mega.schema}://g.api.{mega.domain}/cs"
+    params = {"id": mega.sequence_num, "n": folder_id}
+    mega.sequence_num += 1
+    payload = [{"a": "f", "c": 1, "r": 1, "ca": 1, "p": folder_id}]
+    response = requests.post(
+        url, params=params, data=json.dumps(payload), timeout=mega.timeout
+    )
+    try:
+        data = json.loads(response.text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid MEGA API response: {exc}") from exc
+
+    files = data[0] if isinstance(data, list) else data
+    if isinstance(files, int):
+        raise RuntimeError(f"MEGA API error: {files}")
+    if not files or "f" not in files:
+        raise RuntimeError("Failed to list MEGA folder contents")
+    return files
+
+
 def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path, filename: str) -> Path:
     url = f"{mega.schema}://g.api.{mega.domain}/cs"
     params = {"id": mega.sequence_num, "n": folder_id}
@@ -258,23 +279,7 @@ def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path
 
 
 async def _download_public_folder(mega: Mega, folder_id: str, folder_key: str, dest_path: Path) -> list[str]:
-    url = f"{mega.schema}://g.api.{mega.domain}/cs"
-    params = {"id": mega.sequence_num, "n": folder_id}
-    mega.sequence_num += 1
-    payload = [{"a": "f", "c": 1, "r": 1, "ca": 1, "p": folder_id}]
-    response = requests.post(
-        url, params=params, data=json.dumps(payload), timeout=mega.timeout
-    )
-    try:
-        data = json.loads(response.text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Invalid MEGA API response: {exc}") from exc
-
-    files = data[0] if isinstance(data, list) else data
-    if isinstance(files, int):
-        raise RuntimeError(f"MEGA API error: {files}")
-    if not files or "f" not in files:
-        raise RuntimeError("Failed to list MEGA folder contents")
+    files = _fetch_public_folder_listing(mega, folder_id)
 
     nodes = _decrypt_public_nodes(mega, files.get("f", []), folder_id, folder_key)
     if not nodes:
@@ -293,6 +298,28 @@ async def _download_public_folder(mega: Mega, folder_id: str, folder_key: str, d
         )
         downloaded.append(str(Path(output_path).resolve()))
     return downloaded
+
+
+async def get_mega_total_size(url: str) -> int:
+    if not is_mega_url(url):
+        raise ValueError("Invalid MEGA URL")
+
+    mega = Mega()
+    mega.login()
+    link_type, handle, key = _parse_public_link(url)
+    if link_type == "file":
+        normalized = _normalize_mega_url(url)
+        info = await asyncio.to_thread(mega.get_public_url_info, normalized)
+        if not info:
+            return 0
+        return int(info.get("size", 0) or 0)
+
+    files = _fetch_public_folder_listing(mega, handle)
+    total = 0
+    for node in files.get("f", []):
+        if node.get("t") == 0:
+            total += int(node.get("s", 0) or 0)
+    return total
 
 
 async def download_mega_url(url: str, dest_dir: str) -> list[str]:
