@@ -24,6 +24,8 @@ from .mega_download import download_mega_url, get_mega_total_size
 from .progress import ProgressMessage
 from .uploader import TaskCancelledUpload, upload_path
 from .utils import is_mega_link, safe_link_from_text
+from .settings_db import get_settings
+from .settings_ui import handle_settings_command, register_settings_handlers
 
 DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 UPLOAD_SEM = asyncio.Semaphore(CONCURRENT_UPLOADS)
@@ -128,7 +130,12 @@ async def _run_leech(client: Client, message):
         STATUS_UPDATE_INTERVAL,
     )
 
-    dest = DOWNLOAD_DIR / str(message.id)
+    user_settings = get_settings(task_state.owner_user_id)
+    destination = user_settings.get("DESTINATION", "").strip()
+    if destination:
+        dest = DOWNLOAD_DIR / destination / str(message.id)
+    else:
+        dest = DOWNLOAD_DIR / str(message.id)
     task_state.dest = dest
     total_size = 0
     try:
@@ -184,6 +191,7 @@ async def _run_leech(client: Client, message):
                 status,
                 task_number,
                 task_state.cancel_event,
+                task_state.owner_user_id,
             )
         await status.edit_text("Leech complete.")
     except (TaskCancelled, TaskCancelledUpload):
@@ -203,7 +211,9 @@ async def start_cmd(_, message):
 
 async def help_cmd(_, message):
     await message.reply(
-        "Commands:\n/leech <mega link> - download and upload to Telegram\n/ping - check bot"
+        "Commands:\n/leech <mega link> - download and upload to Telegram\n"
+        "/settings - leech settings panel\n"
+        "/ping - check bot"
     )
 
 
@@ -213,6 +223,10 @@ async def ping_cmd(_, message):
 
 async def leech_cmd(client, message):
     await _run_leech(client, message)
+
+
+async def settings_cmd(client, message):
+    await handle_settings_command(client, message)
 
 
 async def cancel_cmd(_, message):
@@ -245,6 +259,8 @@ def main():
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")))
     app.add_handler(MessageHandler(leech_cmd, filters.command("leech")))
     app.add_handler(MessageHandler(cancel_cmd, filters.command("cancel")))
+    app.add_handler(MessageHandler(settings_cmd, filters.command("settings")))
+    register_settings_handlers(app)
 
     LOGGER.info("Mega leech bot started")
     app.run()
