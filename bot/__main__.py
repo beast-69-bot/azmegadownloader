@@ -627,7 +627,28 @@ def main():
         bot_token=BOT_TOKEN,
     )
 
-    app.add_handler(MessageHandler(verification_gate, filters.command()), group=0)
+    app.add_handler(
+        MessageHandler(
+            verification_gate,
+            filters.command(
+                [
+                    "start",
+                    "help",
+                    "ping",
+                    "leech",
+                    "cancel",
+                    "settings",
+                    "setlogchannel",
+                    "settaskchannel",
+                    "addadmin",
+                    "deladmin",
+                    "listadmins",
+                    "bsetting",
+                ]
+            ),
+        ),
+        group=0,
+    )
     app.add_handler(MessageHandler(start_cmd, filters.command("start")), group=1)
     app.add_handler(MessageHandler(help_cmd, filters.command("help")), group=1)
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")), group=1)
