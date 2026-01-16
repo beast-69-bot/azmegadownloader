@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from typing import Iterable
 from pathlib import Path
@@ -14,6 +15,7 @@ from mega.crypto import (
     decrypt_key,
     str_to_a32,
 )
+import requests
 
 
 def is_mega_url(url: str) -> bool:
@@ -173,18 +175,21 @@ def _build_public_paths(nodes: dict[str, dict]) -> list[tuple[dict, Path]]:
 
 
 async def _download_public_folder(mega: Mega, folder_id: str, folder_key: str, dest_path: Path) -> list[str]:
-    payloads = (
-        {"a": "f", "c": 1, "r": 1, "ca": 1, "p": folder_id},
-        {"a": "f", "c": 1, "r": 1, "ca": 1, "p": folder_id, "k": folder_key},
+    url = f"{mega.schema}://g.api.{mega.domain}/cs"
+    params = {"id": mega.sequence_num, "n": folder_id}
+    mega.sequence_num += 1
+    payload = [{"a": "f", "c": 1, "r": 1, "ca": 1, "p": folder_id}]
+    response = requests.post(
+        url, params=params, data=json.dumps(payload), timeout=mega.timeout
     )
-    files = None
-    for payload in payloads:
-        try:
-            files = mega._api_request(payload)
-        except Exception:
-            continue
-        if any(node.get("t") in (0, 1) for node in files.get("f", [])):
-            break
+    try:
+        data = json.loads(response.text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid MEGA API response: {exc}") from exc
+
+    files = data[0] if isinstance(data, list) else data
+    if isinstance(files, int):
+        raise RuntimeError(f"MEGA API error: {files}")
     if not files or "f" not in files:
         raise RuntimeError("Failed to list MEGA folder contents")
 
