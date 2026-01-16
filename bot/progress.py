@@ -92,7 +92,7 @@ class ProgressMessage:
             if text == self._last_text:
                 return
             self._last_text = text
-            await self._message.edit_text(text, parse_mode="html")
+            await self._message.edit_text(text, parse_mode="HTML")
 
     async def finalize(self, text: str):
         async with self._lock:
