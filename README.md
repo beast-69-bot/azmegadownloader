@@ -19,5 +19,16 @@ python -m bot
 - Uses `mega.py` for both file and folder links.
 
 ## Commands
+User:
 - `/leech <mega link>`: download and upload to current chat
+- `/cancel <task_id>`: cancel your own task
+- `/settings`: chat ID/caption/thumbnail settings
 - `/start`, `/help`, `/ping`
+
+Admin/Sudo:
+- `/setlogchannel <channel_id or @username>`: set /start log channel
+- `/settaskchannel <channel_id or @username>`: set task log channel
+- `/addadmin <user_id or @username>`: add admin
+- `/deladmin <user_id or @username>`: remove admin
+- `/listadmins`: list admins
+- `/bsetting`: verification settings panel
