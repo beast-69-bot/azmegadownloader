@@ -16,6 +16,7 @@ from .config import (
     CONCURRENT_UPLOADS,
     DOWNLOAD_DIR,
     OWNER_ID,
+    SUDO_USERS,
     STATUS_UPDATE_INTERVAL,
     TELEGRAM_API,
     TELEGRAM_HASH,
@@ -41,6 +42,7 @@ _TASK_COUNTER_DATE = None
 _TASK_COUNTER_VALUE = 0
 _TASK_COUNTER_LOCK = asyncio.Lock()
 _ACTIVE_TASKS: dict[int, "TaskState"] = {}
+SUDO_USER_IDS: set[int] = set()
 
 
 class TaskCancelled(Exception):
@@ -65,8 +67,22 @@ def _authorized(message) -> bool:
     return message.chat.id in AUTHORIZED_CHAT_IDS
 
 
+def _parse_id_list(value: str) -> set[int]:
+    ids = set()
+    for part in (value or "").replace(",", " ").split():
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            ids.add(int(part))
+    return ids
+
+
+SUDO_USER_IDS = _parse_id_list(SUDO_USERS)
+
+
 def _is_admin(message) -> bool:
     if OWNER_ID and message.from_user and message.from_user.id == OWNER_ID:
+        return True
+    if message.from_user and message.from_user.id in SUDO_USER_IDS:
         return True
     if message.from_user and message.from_user.id in get_admin_ids():
         return True
