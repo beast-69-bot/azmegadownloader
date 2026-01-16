@@ -313,5 +313,5 @@ def register_settings_handlers(app: Client) -> None:
             & ~filters.command(["settings", "cancel", "start", "help", "leech", "ping"]),
         )
     )
-    app.add_handler(CallbackQueryHandler(settings_callback))
-    app.add_handler(CallbackQueryHandler(bsettings_callback))
+    app.add_handler(CallbackQueryHandler(settings_callback, filters.regex("^settings:")))
+    app.add_handler(CallbackQueryHandler(bsettings_callback, filters.regex("^bsetting:")))
