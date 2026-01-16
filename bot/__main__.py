@@ -42,10 +42,14 @@ from .settings_db import (
     clear_verify_tokens,
     create_verify_token,
     get_admin_ids,
+    get_daily_task_count,
     get_global_setting,
     get_settings,
     get_verify_status,
     get_verify_token,
+    increment_daily_task_count,
+    is_globally_banned,
+    is_premium,
     is_user_banned,
     parse_chat_target,
     record_verify_strike,
@@ -78,6 +82,37 @@ class TaskState:
         self.task: asyncio.Task | None = None
         self.message = None
         self.dest: Path | None = None
+
+
+class PrioritySemaphore:
+    def __init__(self, value: int):
+        self._value = value
+        self._waiters = []
+        self._counter = 0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, priority: int) -> None:
+        async with self._lock:
+            if self._value > 0 and not self._waiters:
+                self._value -= 1
+                return
+            event = asyncio.Event()
+            self._counter += 1
+            self._waiters.append((priority, self._counter, event))
+            self._waiters.sort()
+        await event.wait()
+
+    async def release(self) -> None:
+        async with self._lock:
+            if self._waiters:
+                _priority, _count, event = self._waiters.pop(0)
+                event.set()
+            else:
+                self._value += 1
+
+
+DOWNLOAD_SEM = PrioritySemaphore(CONCURRENT_DOWNLOADS)
+UPLOAD_SEM = PrioritySemaphore(CONCURRENT_UPLOADS)
 
 
 def _authorized(message) -> bool:
@@ -218,12 +253,14 @@ async def verification_gate(client: Client, message):
         return
     if message.command:
         cmd = message.command[0]
-        if cmd in {"start", "help", "ping", "settings"}:
+        if cmd in {"start", "help", "ping", "settings", "leech"}:
             return
     if is_user_banned(message.from_user.id):
-        await message.reply("You are banned from verification.", reply_markup=_support_button())
+        await message.reply(
+            "❌ You are banned from verification", reply_markup=_support_button()
+        )
         raise StopPropagation
-    if not _is_verified_user(message.from_user.id):
+    if not is_premium(message.from_user.id) and not _is_verified_user(message.from_user.id):
         await _send_verification_prompt(client, message)
         raise StopPropagation
 
@@ -325,6 +362,28 @@ async def _run_leech(client: Client, message):
     if not is_mega_link(link):
         return await message.reply("Send a MEGA link with /leech")
 
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id and is_globally_banned(user_id):
+        return await message.reply("❌ You are banned from using this bot.")
+
+    premium = user_id and is_premium(user_id)
+    if user_id and not premium:
+        if is_user_banned(user_id):
+            return await message.reply(
+                "❌ You are banned from verification", reply_markup=_support_button()
+            )
+        if not _is_verified_user(user_id):
+            await _send_verification_prompt(client, message)
+            return
+
+    today = datetime.date.today().isoformat()
+    if user_id and not premium:
+        current = get_daily_task_count(user_id, today)
+        if current >= 3:
+            return await message.reply(
+                "❌ Free plan daily limit is 3 tasks. Upgrade to Premium."
+            )
+
     status = await message.reply("Starting download...")
     task_log_channel = get_global_setting("task_channel_id")
     if task_log_channel:
@@ -338,7 +397,7 @@ async def _run_leech(client: Client, message):
         except Exception:
             pass
     task_number = await _next_daily_task_number()
-    task_state = TaskState(task_number, message.from_user.id if message.from_user else 0)
+    task_state = TaskState(task_number, user_id)
     task_state.message = status
     _ACTIVE_TASKS[task_number] = task_state
 
@@ -361,7 +420,14 @@ async def _run_leech(client: Client, message):
     except Exception as e:
         LOGGER.warning(f"Unable to get MEGA size: {e}")
 
-    await DOWNLOAD_SEM.acquire()
+    if user_id and not premium:
+        if total_size <= 0 or total_size > 20 * 1024 * 1024 * 1024:
+            return await status.edit_text(
+                "❌ Free plan Mega size limit is 20GB. Upgrade to Premium."
+            )
+        increment_daily_task_count(user_id, today)
+
+    await DOWNLOAD_SEM.acquire(0 if premium else 1)
     try:
         poll_task = asyncio.create_task(_poll_download_progress(progress, dest, total_size))
         try:
@@ -393,11 +459,11 @@ async def _run_leech(client: Client, message):
         await _cleanup(dest)
         return
     finally:
-        DOWNLOAD_SEM.release()
+        await DOWNLOAD_SEM.release()
 
     await progress.finalize("Download complete. Uploading...")
 
-    await UPLOAD_SEM.acquire()
+    await UPLOAD_SEM.acquire(0 if premium else 1)
     try:
         for file_path in files:
             if task_state.cancel_event.is_set():
@@ -420,7 +486,7 @@ async def _run_leech(client: Client, message):
         LOGGER.error(f"Upload failed: {e}")
         await status.edit_text(f"Upload failed: {e}")
     finally:
-        UPLOAD_SEM.release()
+        await UPLOAD_SEM.release()
         await _cleanup(dest)
         _ACTIVE_TASKS.pop(task_number, None)
 
@@ -444,7 +510,7 @@ async def start_cmd(client, message):
             return await message.reply("This token is not for your account.")
         if is_user_banned(user.id):
             return await message.reply(
-                "You are banned from verification.", reply_markup=_support_button()
+                "❌ You are banned from verification", reply_markup=_support_button()
             )
         token_info = get_verify_token(user.id, token_value)
         if not token_info:
@@ -459,7 +525,7 @@ async def start_cmd(client, message):
             if banned:
                 await _notify_ban(client, user.id)
                 await message.reply(
-                    "You are banned from verification.",
+                    "❌ You are banned from verification",
                     reply_markup=_support_button(),
                 )
                 return
@@ -475,8 +541,10 @@ async def start_cmd(client, message):
             buttons = [[InlineKeyboardButton("Get New Token", url=short_link)]]
             markup = InlineKeyboardMarkup(buttons)
             remaining = max(min_age - (now - int(token_info["created_at"])), 0)
+            warning_count = strikes if strikes <= 2 else 2
             return await message.reply(
-                "Nice try champ. Ab jaake YouTube se 'How to bypass' dekh. Warning 1/2.",
+                "Nice try champ. Ab jaake YouTube se 'How to bypass' dekh. "
+                f"Warning {warning_count}/2.",
                 reply_markup=markup,
             )
         set_verify_status(user.id, now)

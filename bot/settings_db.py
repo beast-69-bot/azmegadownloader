@@ -62,6 +62,20 @@ def _ensure_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_limits (
+                user_id INTEGER PRIMARY KEY,
+                is_premium INTEGER,
+                daily_task_count INTEGER,
+                last_task_date TEXT,
+                is_verified INTEGER,
+                verification_fail_count INTEGER,
+                verification_blocked INTEGER,
+                is_banned INTEGER
+            )
+            """
+        )
         conn.commit()
 
 
@@ -78,6 +92,105 @@ def get_settings(user_id: int) -> dict:
         settings["caption"] = row[1] or ""
         settings["thumb_path"] = row[2] or ""
     return settings
+
+
+def _ensure_user_limits(user_id: int) -> dict:
+    _ensure_db()
+    defaults = {
+        "is_premium": 0,
+        "daily_task_count": 0,
+        "last_task_date": "",
+        "is_verified": 0,
+        "verification_fail_count": 0,
+        "verification_blocked": 0,
+        "is_banned": 0,
+    }
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT is_premium, daily_task_count, last_task_date,
+                   is_verified, verification_fail_count, verification_blocked, is_banned
+            FROM user_limits WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        if not row:
+            conn.execute(
+                """
+                INSERT INTO user_limits (
+                    user_id, is_premium, daily_task_count, last_task_date,
+                    is_verified, verification_fail_count, verification_blocked, is_banned
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    defaults["is_premium"],
+                    defaults["daily_task_count"],
+                    defaults["last_task_date"],
+                    defaults["is_verified"],
+                    defaults["verification_fail_count"],
+                    defaults["verification_blocked"],
+                    defaults["is_banned"],
+                ),
+            )
+            conn.commit()
+            return dict(defaults)
+    return {
+        "is_premium": int(row[0] or 0),
+        "daily_task_count": int(row[1] or 0),
+        "last_task_date": row[2] or "",
+        "is_verified": int(row[3] or 0),
+        "verification_fail_count": int(row[4] or 0),
+        "verification_blocked": int(row[5] or 0),
+        "is_banned": int(row[6] or 0),
+    }
+
+
+def update_user_limits(user_id: int, **fields) -> None:
+    _ensure_db()
+    _ensure_user_limits(user_id)
+    allowed = {
+        "is_premium",
+        "daily_task_count",
+        "last_task_date",
+        "is_verified",
+        "verification_fail_count",
+        "verification_blocked",
+        "is_banned",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    keys = ", ".join(f"{k} = ?" for k in updates.keys())
+    values = list(updates.values()) + [user_id]
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(f"UPDATE user_limits SET {keys} WHERE user_id = ?", values)
+        conn.commit()
+
+
+def is_premium(user_id: int) -> bool:
+    data = _ensure_user_limits(user_id)
+    return bool(int(data.get("is_premium", 0)))
+
+
+def is_globally_banned(user_id: int) -> bool:
+    data = _ensure_user_limits(user_id)
+    return bool(int(data.get("is_banned", 0)))
+
+
+def get_daily_task_count(user_id: int, today: str) -> int:
+    data = _ensure_user_limits(user_id)
+    if data.get("last_task_date") != today:
+        update_user_limits(user_id, daily_task_count=0, last_task_date=today)
+        return 0
+    return int(data.get("daily_task_count", 0))
+
+
+def increment_daily_task_count(user_id: int, today: str) -> int:
+    count = get_daily_task_count(user_id, today)
+    count += 1
+    update_user_limits(user_id, daily_task_count=count, last_task_date=today)
+    return count
 
 
 def save_settings(user_id: int, settings: dict) -> None:
@@ -224,6 +337,7 @@ def set_verify_status(user_id: int, ts: int | None = None) -> None:
             (user_id, ts),
         )
         conn.commit()
+    update_user_limits(user_id, is_verified=1)
 
 
 def get_verify_status(user_id: int) -> int | None:
@@ -241,42 +355,26 @@ def clear_verify_status(user_id: int) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM verify_status WHERE user_id = ?", (user_id,))
         conn.commit()
+    update_user_limits(user_id, is_verified=0)
 
 
 def record_verify_strike(user_id: int) -> tuple[int, bool]:
     _ensure_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT strikes, banned FROM verify_bans WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-        strikes = int(row[0]) if row else 0
-        strikes += 1
-        banned = 1 if strikes >= 2 else 0
-        conn.execute(
-            """
-            INSERT INTO verify_bans (user_id, strikes, banned)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET strikes = excluded.strikes, banned = excluded.banned
-            """,
-            (user_id, strikes, banned),
-        )
-        conn.commit()
+    data = _ensure_user_limits(user_id)
+    strikes = int(data.get("verification_fail_count", 0)) + 1
+    banned = 1 if strikes >= 3 else 0
+    update_user_limits(
+        user_id,
+        verification_fail_count=strikes,
+        verification_blocked=banned,
+    )
     return strikes, bool(banned)
 
 
 def clear_verify_strikes(user_id: int) -> None:
-    _ensure_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("DELETE FROM verify_bans WHERE user_id = ?", (user_id,))
-        conn.commit()
+    update_user_limits(user_id, verification_fail_count=0, verification_blocked=0)
 
 
 def is_user_banned(user_id: int) -> bool:
-    _ensure_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT banned FROM verify_bans WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-    return bool(row and int(row[0]))
+    data = _ensure_user_limits(user_id)
+    return bool(int(data.get("verification_blocked", 0)))
