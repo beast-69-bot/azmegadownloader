@@ -46,6 +46,7 @@ class ProgressMessage:
         self._last_update = 0.0
         self._start = time.time()
         self._lock = asyncio.Lock()
+        self._last_text = ""
 
     async def update(self, done: int, total: int, speed: float):
         now = time.time()
@@ -64,6 +65,9 @@ class ProgressMessage:
                 f"Speed: {_fmt_bytes(speed)}/s\n"
                 f"ETA: {_fmt_eta(done, total, speed)}"
             )
+            if text == self._last_text:
+                return
+            self._last_text = text
             await self._message.edit_text(text)
 
     async def finalize(self, text: str):
