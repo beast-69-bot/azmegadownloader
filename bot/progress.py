@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import time
 
+from pyrogram.enums import ParseMode
+
 
 def _fmt_bytes(num: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -92,7 +94,7 @@ class ProgressMessage:
             if text == self._last_text:
                 return
             self._last_text = text
-            await self._message.edit_text(text, parse_mode="HTML")
+            await self._message.edit_text(text, parse_mode=ParseMode.HTML)
 
     async def finalize(self, text: str):
         async with self._lock:
