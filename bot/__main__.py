@@ -54,7 +54,7 @@ from .settings_db import (
     set_global_setting,
     delete_verify_token,
 )
-from .settings_ui import register_settings_handlers, settings_command
+from .settings_ui import bsettings_command, register_settings_handlers, settings_command
 
 DOWNLOAD_SEM = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 UPLOAD_SEM = asyncio.Semaphore(CONCURRENT_UPLOADS)
@@ -564,6 +564,8 @@ async def bsetting_cmd(_, message):
     if not _is_admin(message):
         return await message.reply("Unauthorized")
     parts = (message.text or "").split(maxsplit=2)
+    if len(parts) == 1 or parts[1].lower() == "show":
+        return await bsettings_command(message._client, message)
     allowed = {
         "VERIFY_EXPIRE",
         "TOKEN_TTL",
