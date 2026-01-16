@@ -2,17 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import shutil
+import tempfile
 from typing import Iterable
 from pathlib import Path
 
 from mega import Mega
 from mega.crypto import (
+    AES,
+    Counter,
     a32_to_base64,
+    a32_to_str,
     base64_to_a32,
     base64_url_decode,
     decrypt_attr,
     decrypt_key,
+    get_chunks,
     str_to_a32,
 )
 import requests
@@ -174,6 +181,73 @@ def _build_public_paths(nodes: dict[str, dict]) -> list[tuple[dict, Path]]:
     return items
 
 
+def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path, filename: str) -> Path:
+    url = f"{mega.schema}://g.api.{mega.domain}/cs"
+    params = {"id": mega.sequence_num, "n": folder_id}
+    mega.sequence_num += 1
+    payload = [{"a": "g", "g": 1, "n": node["h"]}]
+    response = requests.post(
+        url, params=params, data=json.dumps(payload), timeout=mega.timeout
+    )
+    try:
+        data = json.loads(response.text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid MEGA API response: {exc}") from exc
+
+    file_data = data[0] if isinstance(data, list) else data
+    if isinstance(file_data, int):
+        raise RuntimeError(f"MEGA API error: {file_data}")
+    if "g" not in file_data:
+        raise RuntimeError("MEGA file not accessible")
+
+    file_url = file_data["g"]
+    file_size = file_data["s"]
+    k = node["k"]
+    iv = node["iv"]
+    meta_mac = node["meta_mac"]
+
+    input_file = requests.get(file_url, stream=True).raw
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(mode="w+b", prefix="megapy_", delete=False) as temp_output_file:
+        k_str = a32_to_str(k)
+        counter = Counter.new(128, initial_value=((iv[0] << 32) + iv[1]) << 64)
+        aes = AES.new(k_str, AES.MODE_CTR, counter=counter)
+
+        mac_str = "\0" * 16
+        mac_encryptor = AES.new(k_str, AES.MODE_CBC, mac_str.encode("utf8"))
+        iv_str = a32_to_str([iv[0], iv[1], iv[0], iv[1]])
+
+        for _chunk_start, chunk_size in get_chunks(file_size):
+            chunk = input_file.read(chunk_size)
+            chunk = aes.decrypt(chunk)
+            temp_output_file.write(chunk)
+
+            encryptor = AES.new(k_str, AES.MODE_CBC, iv_str)
+            for i in range(0, len(chunk) - 16, 16):
+                block = chunk[i : i + 16]
+                encryptor.encrypt(block)
+
+            if file_size > 16:
+                i += 16
+            else:
+                i = 0
+
+            block = chunk[i : i + 16]
+            if len(block) % 16:
+                block += b"\0" * (16 - (len(block) % 16))
+            mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
+
+        file_mac = str_to_a32(mac_str)
+        if (file_mac[0] ^ file_mac[1], file_mac[2] ^ file_mac[3]) != meta_mac:
+            raise ValueError("Mismatched mac")
+
+        output_path = dest_dir / filename
+        shutil.move(temp_output_file.name, output_path)
+        return output_path
+
+
 async def _download_public_folder(mega: Mega, folder_id: str, folder_key: str, dest_path: Path) -> list[str]:
     url = f"{mega.schema}://g.api.{mega.domain}/cs"
     params = {"id": mega.sequence_num, "n": folder_id}
@@ -205,15 +279,8 @@ async def _download_public_folder(mega: Mega, folder_id: str, folder_key: str, d
     for node, rel_path in download_items:
         target_dir = dest_path / rel_path.parent
         safe_mkdir(target_dir)
-        file_key = a32_to_base64(node["key"])
         output_path = await asyncio.to_thread(
-            mega._download_file,
-            node["h"],
-            file_key,
-            str(target_dir),
-            rel_path.name,
-            True,
-            None,
+            _download_public_node, mega, folder_id, node, target_dir, rel_path.name
         )
         downloaded.append(str(Path(output_path).resolve()))
     return downloaded
