@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from typing import Iterable
 from pathlib import Path
 
@@ -205,7 +206,16 @@ def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path
     iv = node["iv"]
     meta_mac = node["meta_mac"]
 
-    input_file = requests.get(file_url, stream=True).raw
+    last_error = None
+    for attempt in range(3):
+        try:
+            input_file = requests.get(file_url, stream=True, timeout=mega.timeout).raw
+            break
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            time.sleep(2 * (attempt + 1))
+    else:
+        raise RuntimeError(f"MEGA download failed: {last_error}")
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
