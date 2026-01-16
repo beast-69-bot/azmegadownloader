@@ -442,7 +442,7 @@ async def start_cmd(client, message):
             markup = InlineKeyboardMarkup(buttons)
             remaining = max(min_age - (now - int(token_info["created_at"])), 0)
             return await message.reply(
-                f"Token used too quickly. Wait {remaining}s. Warning {strikes}/3.",
+                "Nice try champ. Ab jaake YouTube se 'How to bypass' dekh",
                 reply_markup=markup,
             )
         set_verify_status(user.id, now)
