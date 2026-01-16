@@ -252,7 +252,7 @@ def record_verify_strike(user_id: int) -> tuple[int, bool]:
         ).fetchone()
         strikes = int(row[0]) if row else 0
         strikes += 1
-        banned = 1 if strikes >= 3 else 0
+        banned = 1 if strikes >= 1 else 0
         conn.execute(
             """
             INSERT INTO verify_bans (user_id, strikes, banned)
