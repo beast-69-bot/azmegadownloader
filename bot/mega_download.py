@@ -108,6 +108,7 @@ def _decrypt_public_nodes(
 ) -> dict[str, dict]:
     shared_key = base64_to_a32(folder_key)
     result: dict[str, dict] = {}
+
     for node in nodes:
         if node.get("t") not in (0, 1):
             continue
@@ -137,6 +138,18 @@ def _decrypt_public_nodes(
             continue
         node["a"] = attrs
         result[node["h"]] = node
+
+    if result:
+        return result
+
+    # Fallback: use mega.py's internal processing for public shares.
+    shared_keys = {"EXP": {node.get("h"): shared_key for node in nodes}}
+    for node in nodes:
+        if node.get("t") not in (0, 1):
+            continue
+        processed = mega._process_file(node, shared_keys)
+        if processed.get("a"):
+            result[node["h"]] = processed
     return result
 
 
