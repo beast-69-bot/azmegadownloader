@@ -11,9 +11,6 @@ from pathlib import Path
 
 from mega import Mega
 from mega.crypto import (
-    AES,
-    Counter,
-    a32_to_base64,
     a32_to_str,
     base64_to_a32,
     base64_url_decode,
@@ -22,6 +19,8 @@ from mega.crypto import (
     get_chunks,
     str_to_a32,
 )
+from Crypto.Cipher import AES
+from Crypto.Util import Counter
 import requests
 
 
