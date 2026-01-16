@@ -1,3 +1,4 @@
 pyrofork==2.2.11
 tgcrypto
 mega.py
+pymongo
