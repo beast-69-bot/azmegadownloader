@@ -217,6 +217,22 @@ async def verification_gate(client: Client, message):
         raise StopPropagation
 
 
+async def _notify_ban(client: Client, user_id: int) -> None:
+    targets = set(get_admin_ids()) | set(SUDO_USER_IDS)
+    if OWNER_ID:
+        targets.add(OWNER_ID)
+    for admin_id in targets:
+        if not admin_id:
+            continue
+        try:
+            await client.send_message(
+                int(admin_id),
+                f"User banned for bypass: {user_id}",
+            )
+        except Exception:
+            continue
+
+
 async def _resolve_channel_id(client: Client, raw: str) -> int:
     raw = (raw or "").strip()
     if not raw:
@@ -428,6 +444,7 @@ async def start_cmd(client, message):
         if min_age and now - int(token_info["created_at"]) < min_age:
             strikes, banned = record_verify_strike(user.id)
             if banned:
+                await _notify_ban(client, user.id)
                 return await message.reply("You are banned from verification.")
             delete_verify_token(user.id, token_value)
             ttl = _get_verif_int("TOKEN_TTL", TOKEN_TTL) or 600
