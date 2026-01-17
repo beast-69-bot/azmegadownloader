@@ -173,6 +173,19 @@ def is_premium(user_id: int) -> bool:
     return bool(int(data.get("is_premium", 0)))
 
 
+def set_premium(user_id: int, enabled: bool) -> None:
+    update_user_limits(user_id, is_premium=1 if enabled else 0)
+
+
+def list_premium_users() -> list[int]:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT user_id FROM user_limits WHERE is_premium = 1"
+        ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
 def is_globally_banned(user_id: int) -> bool:
     data = _ensure_user_limits(user_id)
     return bool(int(data.get("is_banned", 0)))

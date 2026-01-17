@@ -51,9 +51,11 @@ from .settings_db import (
     is_globally_banned,
     is_premium,
     is_user_banned,
+    list_premium_users,
     parse_chat_target,
     record_verify_strike,
     remove_admin_id,
+    set_premium,
     set_verify_status,
     set_global_setting,
     delete_verify_token,
@@ -674,6 +676,43 @@ async def listadmins_cmd(_, message):
     await message.reply("Admins:\n" + "\n".join(str(x) for x in admins))
 
 
+async def setpremium_cmd(client, message):
+    if not _is_admin(message):
+        return await message.reply("Unauthorized")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /setpremium <user_id or @username>")
+    try:
+        user_id = await _resolve_user_id(client, parts[1])
+    except Exception:
+        return await message.reply("Invalid user id or username.")
+    set_premium(user_id, True)
+    await message.reply(f"Premium enabled: {user_id}")
+
+
+async def delpremium_cmd(client, message):
+    if not _is_admin(message):
+        return await message.reply("Unauthorized")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /delpremium <user_id or @username>")
+    try:
+        user_id = await _resolve_user_id(client, parts[1])
+    except Exception:
+        return await message.reply("Invalid user id or username.")
+    set_premium(user_id, False)
+    await message.reply(f"Premium disabled: {user_id}")
+
+
+async def listpremium_cmd(_, message):
+    if not _is_admin(message):
+        return await message.reply("Unauthorized")
+    users = list_premium_users()
+    if not users:
+        return await message.reply("No premium users.")
+    await message.reply("Premium users:\n" + "\n".join(str(x) for x in users))
+
+
 async def bsetting_cmd(_, message):
     if not _is_admin(message):
         return await message.reply("Unauthorized")
@@ -759,6 +798,9 @@ def main():
                     "addadmin",
                     "deladmin",
                     "listadmins",
+                    "setpremium",
+                    "delpremium",
+                    "listpremium",
                     "bsetting",
                 ]
             ),
@@ -776,6 +818,9 @@ def main():
     app.add_handler(MessageHandler(addadmin_cmd, filters.command("addadmin")), group=1)
     app.add_handler(MessageHandler(deladmin_cmd, filters.command("deladmin")), group=1)
     app.add_handler(MessageHandler(listadmins_cmd, filters.command("listadmins")), group=1)
+    app.add_handler(MessageHandler(setpremium_cmd, filters.command("setpremium")), group=1)
+    app.add_handler(MessageHandler(delpremium_cmd, filters.command("delpremium")), group=1)
+    app.add_handler(MessageHandler(listpremium_cmd, filters.command("listpremium")), group=1)
     app.add_handler(MessageHandler(bsetting_cmd, filters.command("bsetting")), group=1)
     register_settings_handlers(app)
 
