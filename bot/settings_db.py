@@ -155,6 +155,17 @@ def _ensure_user_limits(user_id: int) -> dict:
     }
 
 
+def get_user_limits_snapshot(user_id: int) -> dict:
+    return _ensure_user_limits(user_id)
+
+
+def get_daily_task_count_snapshot(user_id: int, today: str) -> int:
+    data = _ensure_user_limits(user_id)
+    if data.get("last_task_date") != today:
+        return 0
+    return int(data.get("daily_task_count", 0))
+
+
 def update_user_limits(user_id: int, **fields) -> None:
     _ensure_db()
     _ensure_user_limits(user_id)

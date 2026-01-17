@@ -44,6 +44,7 @@ from .settings_db import (
     create_verify_token,
     get_admin_ids,
     get_daily_task_count,
+    get_daily_task_count_snapshot,
     get_global_setting,
     get_settings,
     get_verify_status,
@@ -321,7 +322,7 @@ async def verification_gate(client: Client, message):
         return
     if message.command:
         cmd = message.command[0]
-        if cmd in {"start", "help", "ping", "settings", "leech"}:
+        if cmd in {"start", "help", "ping", "settings", "leech", "status"}:
             return
     if is_user_banned(message.from_user.id):
         await _reply(message, 
@@ -648,7 +649,17 @@ async def start_cmd(client, message):
         await _send_verification_prompt(client, message)
         return
 
-    await _reply(message, "✅ <b>MEGA leech bot is running.</b> Use /leech &lt;mega link&gt;.")
+    await _reply(
+        message,
+        "\U0001f44b Welcome!\n\n"
+        "This bot lets you download MEGA files\n"
+        "and upload them directly to Telegram \U0001f680\n\n"
+        "\U0001f449 To begin, send:\n"
+        "/leech &lt;mega link&gt;\n\n"
+        "\u2699\ufe0f Settings: /settings\n"
+        "\u2753 Help: /help",
+        reply_markup=_support_button(),
+    )
     log_channel = get_global_setting("log_channel_id")
     if log_channel:
         try:
@@ -878,6 +889,38 @@ async def listbans_cmd(_, message):
     if not users:
         return await _reply(message, "ℹ️ <b>No banned users.</b>")
     await _reply(message, "Banned users:\n" + "\n".join(str(x) for x in users))
+
+
+async def status_cmd(_, message):
+    user_id = message.from_user.id if message.from_user else 0
+    if not user_id:
+        return await _reply(message, "\u26a0\ufe0f <b>Unable to read user status.</b>")
+    today = datetime.date.today().isoformat()
+    if is_premium(user_id):
+        exp = get_premium_expire_ts(user_id)
+        valid_till = "Lifetime" if exp == 0 else datetime.datetime.fromtimestamp(exp).strftime("%Y-%m-%d %H:%M")
+        return await _reply(
+            message,
+            "\U0001f4ca <b>Status</b>\n"
+            "Plan: <b>PREMIUM \u2b50</b>\n"
+            f"Valid till: <b>{valid_till}</b>\n"
+            "Daily tasks: <b>Unlimited</b>\n"
+            "Size limit: <b>No limit</b>\n"
+            "Verification: <b>Not required</b>",
+        )
+
+    done_today = get_daily_task_count_snapshot(user_id, today)
+    remaining = max(3 - done_today, 0)
+    return await _reply(
+        message,
+        "\U0001f4ca <b>Status</b>\n"
+        "Plan: <b>FREE</b>\n"
+        f"Today: <b>{done_today}/3</b> tasks used\n"
+        f"Remaining: <b>{remaining}</b>\n"
+        "Limit: <b>20GB</b> per link\n"
+        "Verification: <b>Required</b>",
+    )
+
 
 
 async def bsetting_cmd(_, message):
@@ -1262,6 +1305,7 @@ def main():
                     "setpremium",
                     "delpremium",
                     "listpremium",
+                    "status",
                     "pay",
                     "payapprove",
                     "payreject",
@@ -1294,6 +1338,7 @@ def main():
     app.add_handler(MessageHandler(ban_cmd, filters.command("ban")), group=1)
     app.add_handler(MessageHandler(unban_cmd, filters.command("unban")), group=1)
     app.add_handler(MessageHandler(listbans_cmd, filters.command("listbans")), group=1)
+    app.add_handler(MessageHandler(status_cmd, filters.command("status")), group=1)
     app.add_handler(CallbackQueryHandler(pay_callback, filters.regex("^pay:")), group=1)
     app.add_handler(
         CallbackQueryHandler(pay_admin_callback, filters.regex("^payadmin:")),
