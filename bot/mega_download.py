@@ -361,11 +361,19 @@ async def download_mega_url(url: str, dest_dir: str) -> list[str]:
     mega = Mega()
     try:
         _login_mega(mega)
+        normalized = _normalize_mega_url(url)
+        try:
+            await asyncio.to_thread(mega.download_url, normalized, str(dest_path))
+            files = list_files_recursive(dest_path)
+            if files:
+                return files
+        except Exception:
+            pass
+
         link_type, handle, key = _parse_public_link(url)
         if link_type == "folder":
             return await _download_public_folder(mega, handle, key, dest_path)
-        url = _normalize_mega_url(url)
-        await asyncio.to_thread(mega.download_url, url, str(dest_path))
+        await asyncio.to_thread(mega.download_url, normalized, str(dest_path))
     except Exception as exc:
         raise RuntimeError(f"MEGA download failed: {exc}") from exc
 
