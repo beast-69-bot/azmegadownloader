@@ -53,10 +53,12 @@ from .settings_db import (
     is_premium,
     is_user_banned,
     get_premium_expire_ts,
+    list_banned_users,
     list_premium_users,
     parse_chat_target,
     record_verify_strike,
     remove_admin_id,
+    set_global_ban,
     set_premium,
     set_verify_status,
     set_global_setting,
@@ -347,6 +349,20 @@ async def _notify_ban(client: Client, user_id: int) -> None:
             continue
 
 
+async def _notify_warning(client: Client, user_id: int, strikes: int) -> None:
+    channel = _get_verif_str("WARNING_CHANNEL", "")
+    if not channel:
+        return
+    try:
+        channel_id = await _resolve_channel_id(client, channel)
+        await client.send_message(
+            int(channel_id),
+            f"⚠️ Bypass warning for user {user_id}. Warning {strikes}/2.",
+        )
+    except Exception:
+        pass
+
+
 async def _resolve_channel_id(client: Client, raw: str) -> int:
     raw = (raw or "").strip()
     if not raw:
@@ -602,6 +618,7 @@ async def start_cmd(client, message):
                     reply_markup=_support_button(),
                 )
                 return
+            await _notify_warning(client, user.id, strikes)
             delete_verify_token(user.id, token_value)
             ttl = _get_verif_int("TOKEN_TTL", TOKEN_TTL) or 600
             new_token = create_verify_token(user.id, ttl)
@@ -824,6 +841,43 @@ async def listpremium_cmd(_, message):
         else:
             lines.append(f"{user_id}")
     await _reply(message, "\n".join(lines))
+
+
+async def ban_cmd(client, message):
+    if not _is_admin(message):
+        return await _reply(message, "⛔ <b>Unauthorized</b>")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await _reply(message, "Usage: /ban <user_id or @username>")
+    try:
+        user_id = await _resolve_user_id(client, parts[1])
+    except Exception:
+        return await _reply(message, "❌ <b>Invalid user id or username.</b>")
+    set_global_ban(user_id, True)
+    await _reply(message, f"⛔ <b>User banned:</b> {user_id}")
+
+
+async def unban_cmd(client, message):
+    if not _is_admin(message):
+        return await _reply(message, "⛔ <b>Unauthorized</b>")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await _reply(message, "Usage: /unban <user_id or @username>")
+    try:
+        user_id = await _resolve_user_id(client, parts[1])
+    except Exception:
+        return await _reply(message, "❌ <b>Invalid user id or username.</b>")
+    set_global_ban(user_id, False)
+    await _reply(message, f"✅ <b>User unbanned:</b> {user_id}")
+
+
+async def listbans_cmd(_, message):
+    if not _is_admin(message):
+        return await _reply(message, "⛔ <b>Unauthorized</b>")
+    users = list_banned_users()
+    if not users:
+        return await _reply(message, "ℹ️ <b>No banned users.</b>")
+    await _reply(message, "Banned users:\n" + "\n".join(str(x) for x in users))
 
 
 async def bsetting_cmd(_, message):
@@ -1211,6 +1265,9 @@ def main():
                     "pay",
                     "payapprove",
                     "payreject",
+                    "ban",
+                    "unban",
+                    "listbans",
                     "bsetting",
                 ]
             ),
@@ -1234,6 +1291,9 @@ def main():
     app.add_handler(MessageHandler(pay_cmd, filters.command("pay")), group=1)
     app.add_handler(MessageHandler(payapprove_cmd, filters.command("payapprove")), group=1)
     app.add_handler(MessageHandler(payreject_cmd, filters.command("payreject")), group=1)
+    app.add_handler(MessageHandler(ban_cmd, filters.command("ban")), group=1)
+    app.add_handler(MessageHandler(unban_cmd, filters.command("unban")), group=1)
+    app.add_handler(MessageHandler(listbans_cmd, filters.command("listbans")), group=1)
     app.add_handler(CallbackQueryHandler(pay_callback, filters.regex("^pay:")), group=1)
     app.add_handler(
         CallbackQueryHandler(pay_admin_callback, filters.regex("^payadmin:")),

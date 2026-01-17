@@ -46,6 +46,7 @@ BSETTING_KEYS = [
     "PAYMENT_UPI",
     "PAYMENT_CHANNEL",
     "PAYMENT_QR",
+    "WARNING_CHANNEL",
 ]
 
 
@@ -162,6 +163,9 @@ def _bsetting_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("PAYMENT_QR", callback_data="bsetting:PAYMENT_QR"),
+        ],
+        [
+            InlineKeyboardButton("WARNING_CHANNEL", callback_data="bsetting:WARNING_CHANNEL"),
         ],
         [InlineKeyboardButton("CLOSE", callback_data="bsetting:close")],
     ]

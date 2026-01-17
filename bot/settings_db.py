@@ -215,6 +215,19 @@ def is_globally_banned(user_id: int) -> bool:
     return bool(int(data.get("is_banned", 0)))
 
 
+def set_global_ban(user_id: int, enabled: bool) -> None:
+    update_user_limits(user_id, is_banned=1 if enabled else 0)
+
+
+def list_banned_users() -> list[int]:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT user_id FROM user_limits WHERE is_banned = 1"
+        ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
 def get_daily_task_count(user_id: int, today: str) -> int:
     data = _ensure_user_limits(user_id)
     if data.get("last_task_date") != today:
