@@ -1026,15 +1026,13 @@ async def _notify_payment_request(client, message, pending: PaymentRequest) -> N
     )
 
     channel = _get_verif_str("PAYMENT_CHANNEL", "")
-    targets = []
+    targets = list(set(get_admin_ids()) | set(SUDO_USER_IDS) | ({OWNER_ID} if OWNER_ID else set()))
     if channel:
         try:
             channel_id = await _resolve_channel_id(client, channel)
-            targets = [channel_id]
-        except Exception:
-            targets = []
-    if not targets:
-        targets = list(set(get_admin_ids()) | set(SUDO_USER_IDS) | ({OWNER_ID} if OWNER_ID else set()))
+            targets.insert(0, channel_id)
+        except Exception as e:
+            LOGGER.warning(f"Payment channel resolve failed: {e}")
 
     for target in targets:
         try:
@@ -1067,7 +1065,8 @@ async def _notify_payment_request(client, message, pending: PaymentRequest) -> N
                     parse_mode=ParseMode.HTML,
                     reply_markup=buttons,
                 )
-        except Exception:
+        except Exception as e:
+            LOGGER.warning(f"Payment notify failed for {target}: {e}")
             continue
 
 
