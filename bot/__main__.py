@@ -596,9 +596,23 @@ async def start_cmd(client, message):
 
 async def help_cmd(_, message):
     await message.reply(
-        "Commands:\n/leech <mega link> - download and upload to Telegram\n"
-        "/settings - customize leech settings\n"
-        "/ping - check bot"
+        "📌 User Commands\n"
+        "/leech <mega link> - download and upload to Telegram\n"
+        "/cancel <task_id> - cancel your own task\n"
+        "/settings - chat ID, caption, thumbnail\n"
+        "/start - start bot\n"
+        "/help - show help\n"
+        "/ping - check bot\n\n"
+        "🛡️ Admin/Sudo Commands\n"
+        "/setlogchannel <channel_id or @username>\n"
+        "/settaskchannel <channel_id or @username>\n"
+        "/addadmin <user_id or @username>\n"
+        "/deladmin <user_id or @username>\n"
+        "/listadmins\n"
+        "/bsetting - verification settings panel\n"
+        "/setpremium <user_id or @username> <validity>\n"
+        "/delpremium <user_id or @username>\n"
+        "/listpremium"
     )
 
 
