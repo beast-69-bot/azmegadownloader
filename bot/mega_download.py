@@ -232,6 +232,8 @@ def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path
     k = node["k"]
     iv = node["iv"]
     meta_mac = node["meta_mac"]
+    if not k or len(k) < 4 or not iv or len(iv) < 2 or not meta_mac or len(meta_mac) < 2:
+        raise RuntimeError("Invalid MEGA node key data")
 
     last_error = None
     for attempt in range(3):
@@ -277,6 +279,8 @@ def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path
             mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
 
         file_mac = str_to_a32(mac_str)
+        if len(file_mac) < 4:
+            raise ValueError("Invalid file mac")
         if (file_mac[0] ^ file_mac[1], file_mac[2] ^ file_mac[3]) != meta_mac:
             raise ValueError("Mismatched mac")
 
