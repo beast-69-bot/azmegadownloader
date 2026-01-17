@@ -47,6 +47,7 @@ BSETTING_KEYS = [
     "PAYMENT_CHANNEL",
     "PAYMENT_QR",
     "WARNING_CHANNEL",
+    "FORCE_CHANNELS",
 ]
 
 
@@ -116,6 +117,7 @@ def _get_verif_value(key: str) -> str:
         "SHORTLINK_SITE": SHORTLINK_SITE,
         "SHORTLINK_API": SHORTLINK_API,
         "SUPPORT_ID": "",
+        "FORCE_CHANNELS": "",
     }
     return defaults.get(key, "")
 
@@ -166,6 +168,9 @@ def _bsetting_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("WARNING_CHANNEL", callback_data="bsetting:WARNING_CHANNEL"),
+        ],
+        [
+            InlineKeyboardButton("FORCE_CHANNELS", callback_data="bsetting:FORCE_CHANNELS"),
         ],
         [InlineKeyboardButton("CLOSE", callback_data="bsetting:close")],
     ]

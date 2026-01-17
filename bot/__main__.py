@@ -319,11 +319,81 @@ def _payment_button() -> InlineKeyboardMarkup | None:
     )
 
 
+def _parse_force_channels(raw: str) -> list[str]:
+    items = []
+    for part in (raw or "").replace(",", " ").split():
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith("http://") or part.startswith("https://"):
+            items.append(part)
+        elif part.startswith("@"):
+            items.append(part)
+        else:
+            items.append(part)
+    return items
+
+
+async def _force_join_check(client: Client, message) -> bool:
+    if not message.from_user:
+        return True
+    raw = (get_global_setting("FORCE_CHANNELS") or "").strip()
+    if not raw:
+        return True
+    channels = _parse_force_channels(raw)
+    if not channels:
+        return True
+
+    missing: list[str] = []
+    join_buttons: list[list[InlineKeyboardButton]] = []
+    for entry in channels:
+        chat_ref = entry
+        if entry.startswith("http://") or entry.startswith("https://"):
+            chat_ref = entry.rstrip("/").split("/")[-1]
+        try:
+            chat = await client.get_chat(chat_ref)
+            member = await client.get_chat_member(chat.id, message.from_user.id)
+            status = str(getattr(member, "status", ""))
+            if status in {"left", "kicked"}:
+                missing.append(entry)
+        except Exception:
+            missing.append(entry)
+
+        if entry.startswith("http://") or entry.startswith("https://"):
+            join_buttons.append([InlineKeyboardButton("Join Channel", url=entry)])
+        elif entry.startswith("@"):
+            join_buttons.append(
+                [InlineKeyboardButton("Join Channel", url=f"https://t.me/{entry.lstrip('@')}")]
+            )
+        else:
+            try:
+                chat = await client.get_chat(entry)
+                if chat.username:
+                    join_buttons.append(
+                        [InlineKeyboardButton("Join Channel", url=f"https://t.me/{chat.username}")]
+                    )
+            except Exception:
+                pass
+
+    if missing:
+        text = (
+            "🔔 <b>Join required</b>\n\n"
+            "Please join the channel(s) below and try again."
+        )
+        markup = InlineKeyboardMarkup(join_buttons) if join_buttons else None
+        await _reply(message, text, reply_markup=markup)
+        return False
+
+    return True
+
+
 async def verification_gate(client: Client, message):
     if not message.from_user:
         return
     if _is_admin(message):
         return
+    if not await _force_join_check(client, message):
+        raise StopPropagation
     if message.command:
         cmd = message.command[0]
         if cmd in {"start", "help", "ping", "settings", "leech", "status", "speedtest", "redeem"}:
@@ -1056,6 +1126,7 @@ async def bsetting_cmd(_, message):
         "SHORTLINK_SITE",
         "SHORTLINK_API",
         "SUPPORT_ID",
+        "FORCE_CHANNELS",
     }
     if len(parts) == 1 or parts[1].lower() == "show":
         values = [
