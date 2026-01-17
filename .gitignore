@@ -1,6 +1,5 @@
 .venv/*
 config.py
-!bot/config.py
 token.pickle
 rclone.conf
 .netrc

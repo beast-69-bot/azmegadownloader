@@ -1,10 +1,14 @@
-FROM python:3.10-slim
+FROM mysterysd/wzmlx:v3
 
-WORKDIR /app
+WORKDIR /usr/src/app
+RUN chmod 777 /usr/src/app
+
+RUN uv venv --system-site-packages
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "-m", "bot"]
+CMD ["bash", "start.sh"]
+
