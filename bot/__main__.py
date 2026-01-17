@@ -86,9 +86,9 @@ class PaymentRequest:
 
 
 PAYMENT_PLANS = {
-    "1d": ("1 Day", 1 * 24 * 60 * 60, 99),
-    "1w": ("1 Week", 7 * 24 * 60 * 60, 299),
-    "1m": ("1 Month", 30 * 24 * 60 * 60, 699),
+    "1d": ("1 Day", 1 * 24 * 60 * 60, 5),
+    "1w": ("1 Week", 7 * 24 * 60 * 60, 30),
+    "1m": ("1 Month", 30 * 24 * 60 * 60, 50),
 }
 
 
@@ -947,16 +947,25 @@ async def pay_callback(client, cq):
         ]
         qr = _get_verif_str("PAYMENT_QR", "")
         upi = _get_verif_str("PAYMENT_UPI", "")
-        if qr:
+        if upi:
+            pay_link = (
+                f"upi://pay?pa={urllib.parse.quote(upi)}"
+                f"&am={price}&cu=INR&tn={urllib.parse.quote(label)}"
+            )
+            qr_url = (
+                "https://api.qrserver.com/v1/create-qr-code/?size=512x512&data="
+                + urllib.parse.quote(pay_link)
+            )
             await cq.message.reply_photo(
-                qr,
-                caption=caption,
+                qr_url,
+                caption=caption + f"\n\nUPI: <code>{upi}</code>",
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=ParseMode.HTML,
             )
-        elif upi:
-            await cq.message.reply_text(
-                caption + f"\n\nUPI: <code>{upi}</code>",
+        elif qr:
+            await cq.message.reply_photo(
+                qr,
+                caption=caption,
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=ParseMode.HTML,
             )
