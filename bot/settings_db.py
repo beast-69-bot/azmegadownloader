@@ -18,6 +18,26 @@ def _ensure_db() -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS user_limits (
+                user_id INTEGER PRIMARY KEY,
+                is_premium INTEGER,
+                premium_expire_ts INTEGER,
+                daily_task_count INTEGER,
+                last_task_date TEXT,
+                is_verified INTEGER,
+                verification_fail_count INTEGER,
+                verification_blocked INTEGER,
+                is_banned INTEGER
+            )
+            """
+        )
+        # Backfill for existing DBs without premium_expire_ts
+        try:
+            conn.execute("ALTER TABLE user_limits ADD COLUMN premium_expire_ts INTEGER")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS user_settings (
                 user_id INTEGER PRIMARY KEY,
                 chat_id TEXT,
@@ -59,21 +79,6 @@ def _ensure_db() -> None:
                 user_id INTEGER PRIMARY KEY,
                 strikes INTEGER,
                 banned INTEGER
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_limits (
-                user_id INTEGER PRIMARY KEY,
-                is_premium INTEGER,
-                premium_expire_ts INTEGER,
-                daily_task_count INTEGER,
-                last_task_date TEXT,
-                is_verified INTEGER,
-                verification_fail_count INTEGER,
-                verification_blocked INTEGER,
-                is_banned INTEGER
             )
             """
         )
