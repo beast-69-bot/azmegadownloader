@@ -21,7 +21,6 @@ language-data
 jinja2
 lxml
 motor
-megasdk
 natsort
 par2cmdline-turbo
 pillow

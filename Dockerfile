@@ -3,10 +3,11 @@ FROM mysterysd/wzmlx:v3
 WORKDIR /usr/src/app
 RUN chmod 777 /usr/src/app
 
-RUN uv venv --system-site-packages
+# Use system Python in the base image to keep compatibility with prebuilt deps.
+RUN python3 -m venv .venv --system-site-packages
 
 COPY requirements.txt .
-RUN uv pip install --no-cache-dir -r requirements.txt
+RUN .venv/bin/pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
