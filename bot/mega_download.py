@@ -134,11 +134,17 @@ def _decrypt_public_nodes(
         if not enc_key:
             continue
         key = decrypt_key(str_to_a32(base64_url_decode(enc_key)), shared_key)
+        if not key:
+            continue
         if node["t"] == 0:
+            if len(key) < 8:
+                continue
             k = (key[0] ^ key[4], key[1] ^ key[5], key[2] ^ key[6], key[3] ^ key[7])
             node["iv"] = key[4:6] + (0, 0)
             node["meta_mac"] = key[6:8]
         else:
+            if len(key) < 4:
+                continue
             k = key
         node["key"] = key
         node["k"] = k
