@@ -637,7 +637,6 @@ async def help_cmd(_, message):
         "\u2022 /delpremium &lt;user&gt;\n"
         "\u2022 /listpremium\n\n"
         "\U0001f4a1 Premium: unlimited tasks + priority \U0001f680",
-        parse_mode=ParseMode.HTML,
     )
 
 
