@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pyrogram import Client, StopPropagation, filters
 from pyrogram.enums import ParseMode
-from pyrogram.handlers import MessageHandler
+from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from . import LOGGER
@@ -72,6 +72,24 @@ _TASK_COUNTER_LOCK = asyncio.Lock()
 _ACTIVE_TASKS: dict[int, "TaskState"] = {}
 SUDO_USER_IDS: set[int] = set()
 _BOT_USERNAME = ""
+PAYMENT_PENDING: dict[int, "PaymentRequest"] = {}
+
+
+class PaymentRequest:
+    def __init__(self, plan_key: str, label: str, price: int, seconds: int):
+        self.plan_key = plan_key
+        self.label = label
+        self.price = price
+        self.seconds = seconds
+        self.screenshot_id: str | None = None
+        self.utr: str | None = None
+
+
+PAYMENT_PLANS = {
+    "1d": ("1 Day", 1 * 24 * 60 * 60, 99),
+    "1w": ("1 Week", 7 * 24 * 60 * 60, 299),
+    "1m": ("1 Month", 30 * 24 * 60 * 60, 699),
+}
 
 
 class TaskCancelled(Exception):
@@ -224,7 +242,9 @@ def _shorten_url(url: str, site: str, api_key: str) -> str:
 
 
 async def _reply(message, text, **kwargs):
-    return await message.reply(text, parse_mode=ParseMode.HTML, **kwargs)
+    if "parse_mode" not in kwargs:
+        kwargs["parse_mode"] = ParseMode.HTML
+    return await message.reply(text, **kwargs)
 
 
 async def _edit(message, text, **kwargs):
@@ -278,6 +298,17 @@ def _support_button() -> InlineKeyboardMarkup | None:
         support_id = f"@{support_id}"
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("Contact Admin", url=f"https://t.me/{support_id.lstrip('@')}")]]
+    )
+
+
+def _payment_button() -> InlineKeyboardMarkup | None:
+    support_id = _get_verif_str("SUPPORT_ID", "")
+    if not support_id:
+        return None
+    if not support_id.startswith("@"):
+        support_id = f"@{support_id}"
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{support_id.lstrip('@')}")]]
     )
 
 
@@ -865,6 +896,204 @@ async def bsetting_cmd(_, message):
     return await _reply(message, f"✅ <b>{key} updated.</b>")
 
 
+async def pay_cmd(_, message):
+    buttons = [
+        [
+            InlineKeyboardButton("🗓 1 Day", callback_data="pay:plan:1d"),
+            InlineKeyboardButton("📅 1 Week", callback_data="pay:plan:1w"),
+        ],
+        [InlineKeyboardButton("📆 1 Month", callback_data="pay:plan:1m")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="pay:cancel")],
+    ]
+    await _reply(
+        message,
+        "⭐ <b>Choose Your Premium Plan</b>",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def pay_callback(client, cq):
+    user_id = cq.from_user.id
+    data = cq.data or ""
+    if not data.startswith("pay:"):
+        return
+
+    if data == "pay:cancel":
+        PAYMENT_PENDING.pop(user_id, None)
+        await cq.message.edit_text("❌ <b>Payment cancelled.</b>", parse_mode=ParseMode.HTML)
+        await cq.answer()
+        return
+
+    if data.startswith("pay:plan:"):
+        plan_key = data.split(":", 2)[2]
+        if plan_key not in PAYMENT_PLANS:
+            await cq.answer("Invalid plan", show_alert=True)
+            return
+        label, seconds, price = PAYMENT_PLANS[plan_key]
+        PAYMENT_PENDING[user_id] = PaymentRequest(plan_key, label, price, seconds)
+
+        caption = (
+            "💳 <b>Payment Details</b>\n\n"
+            f"Plan: <b>{label}</b>\n"
+            f"Price: <b>{price}</b>\n\n"
+            "Scan the QR code below to pay."
+        )
+        buttons = [
+            [
+                InlineKeyboardButton("📤 Send Screenshot", callback_data="pay:send_ss"),
+                InlineKeyboardButton("🔢 Send UTR", callback_data="pay:send_utr"),
+            ],
+            [InlineKeyboardButton("❌ Cancel", callback_data="pay:cancel")],
+        ]
+        qr = _get_verif_str("PAYMENT_QR", "")
+        upi = _get_verif_str("PAYMENT_UPI", "")
+        if qr:
+            await cq.message.reply_photo(
+                qr,
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=ParseMode.HTML,
+            )
+        elif upi:
+            await cq.message.reply_text(
+                caption + f"\n\nUPI: <code>{upi}</code>",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await cq.message.reply_text(
+                "⚠️ <b>Payment settings not configured.</b> Please contact admin.",
+                reply_markup=_payment_button(),
+                parse_mode=ParseMode.HTML,
+            )
+        await cq.answer()
+        return
+
+    if data == "pay:send_ss":
+        await cq.message.reply_text("📤 <b>Send payment screenshot</b>", parse_mode=ParseMode.HTML)
+        await cq.answer()
+        return
+
+    if data == "pay:send_utr":
+        await cq.message.reply_text("🔢 <b>Send UTR / Transaction ID</b>", parse_mode=ParseMode.HTML)
+        await cq.answer()
+        return
+
+    await cq.answer()
+
+
+async def pay_input_handler(client, message):
+    user_id = message.from_user.id if message.from_user else 0
+    if not user_id or user_id not in PAYMENT_PENDING:
+        return
+    pending = PAYMENT_PENDING[user_id]
+
+    if message.photo:
+        pending.screenshot_id = message.photo.file_id
+        await _reply(message, "✅ <b>Screenshot received</b>")
+    elif message.text:
+        pending.utr = (message.text or "").strip()
+        await _reply(message, "✅ <b>UTR received</b>")
+    else:
+        return
+
+    if pending.screenshot_id and pending.utr:
+        await _reply(
+            message,
+            "⏳ <b>Your payment is under verification.</b>\nPlease wait for admin approval.",
+        )
+        await _notify_payment_request(client, message, pending)
+    raise StopPropagation
+
+
+async def _notify_payment_request(client, message, pending: PaymentRequest) -> None:
+    user = message.from_user
+    uname = f"@{user.username}" if user and user.username else "unknown"
+    text = (
+        "💰 <b>New Premium Payment Request</b>\n\n"
+        f"User: {uname} ({user.id if user else 0})\n"
+        f"Plan: {pending.label}\n"
+        f"UTR: {pending.utr or 'N/A'}"
+    )
+
+    channel = _get_verif_str("PAYMENT_CHANNEL", "")
+    targets = []
+    if channel:
+        try:
+            channel_id = await _resolve_channel_id(client, channel)
+            targets = [channel_id]
+        except Exception:
+            targets = []
+    if not targets:
+        targets = list(set(get_admin_ids()) | set(SUDO_USER_IDS) | ({OWNER_ID} if OWNER_ID else set()))
+
+    for target in targets:
+        try:
+            if pending.screenshot_id:
+                await client.send_photo(
+                    int(target),
+                    pending.screenshot_id,
+                    caption=text,
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await client.send_message(int(target), text, parse_mode=ParseMode.HTML)
+        except Exception:
+            continue
+
+
+async def payapprove_cmd(client, message):
+    if not _is_admin(message):
+        return await _reply(message, "⛔ <b>Unauthorized</b>")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await _reply(message, "Usage: /payapprove <user_id>")
+    if not parts[1].isdigit():
+        return await _reply(message, "❌ <b>Invalid user id.</b>")
+    user_id = int(parts[1])
+    pending = PAYMENT_PENDING.pop(user_id, None)
+    if not pending:
+        return await _reply(message, "⚠️ <b>No pending payment found.</b>")
+    expire_ts = int(time.time()) + pending.seconds
+    set_premium(user_id, True, expire_ts)
+    await _reply(message, f"✅ <b>Payment approved.</b> Premium enabled: {user_id}")
+    try:
+        await client.send_message(
+            user_id,
+            "🎉 <b>Premium Activated!</b>\n\n"
+            f"Plan: <b>{pending.label}</b>\n"
+            f"Valid Till: <b>{datetime.datetime.fromtimestamp(expire_ts)}</b>\n\n"
+            "Enjoy unlimited leech & priority access 🚀",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+
+
+async def payreject_cmd(client, message):
+    if not _is_admin(message):
+        return await _reply(message, "⛔ <b>Unauthorized</b>")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await _reply(message, "Usage: /payreject <user_id>")
+    if not parts[1].isdigit():
+        return await _reply(message, "❌ <b>Invalid user id.</b>")
+    user_id = int(parts[1])
+    pending = PAYMENT_PENDING.pop(user_id, None)
+    if not pending:
+        return await _reply(message, "⚠️ <b>No pending payment found.</b>")
+    await _reply(message, f"❌ <b>Payment rejected.</b> User: {user_id}")
+    try:
+        await client.send_message(
+            user_id,
+            "❌ <b>Payment verification failed.</b>\n"
+            "Please contact admin for support.",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+
+
 def main():
     app = Client(
         "mega_leech_bot",
@@ -892,6 +1121,9 @@ def main():
                     "setpremium",
                     "delpremium",
                     "listpremium",
+                    "pay",
+                    "payapprove",
+                    "payreject",
                     "bsetting",
                 ]
             ),
@@ -912,6 +1144,14 @@ def main():
     app.add_handler(MessageHandler(setpremium_cmd, filters.command("setpremium")), group=1)
     app.add_handler(MessageHandler(delpremium_cmd, filters.command("delpremium")), group=1)
     app.add_handler(MessageHandler(listpremium_cmd, filters.command("listpremium")), group=1)
+    app.add_handler(MessageHandler(pay_cmd, filters.command("pay")), group=1)
+    app.add_handler(MessageHandler(payapprove_cmd, filters.command("payapprove")), group=1)
+    app.add_handler(MessageHandler(payreject_cmd, filters.command("payreject")), group=1)
+    app.add_handler(CallbackQueryHandler(pay_callback, filters.regex("^pay:")), group=1)
+    app.add_handler(
+        MessageHandler(pay_input_handler, filters.private & ~filters.command()),
+        group=1,
+    )
     app.add_handler(MessageHandler(bsetting_cmd, filters.command("bsetting")), group=1)
     register_settings_handlers(app)
 

@@ -43,6 +43,9 @@ BSETTING_KEYS = [
     "SHORTLINK_SITE",
     "SHORTLINK_API",
     "SUPPORT_ID",
+    "PAYMENT_UPI",
+    "PAYMENT_CHANNEL",
+    "PAYMENT_QR",
 ]
 
 
@@ -152,6 +155,13 @@ def _bsetting_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("SUPPORT_ID", callback_data="bsetting:SUPPORT_ID"),
+        ],
+        [
+            InlineKeyboardButton("PAYMENT_UPI", callback_data="bsetting:PAYMENT_UPI"),
+            InlineKeyboardButton("PAYMENT_CHANNEL", callback_data="bsetting:PAYMENT_CHANNEL"),
+        ],
+        [
+            InlineKeyboardButton("PAYMENT_QR", callback_data="bsetting:PAYMENT_QR"),
         ],
         [InlineKeyboardButton("CLOSE", callback_data="bsetting:close")],
     ]
