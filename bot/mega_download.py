@@ -24,6 +24,8 @@ from Crypto.Cipher import AES
 from Crypto.Util import Counter
 import requests
 
+from . import LOGGER
+
 
 def is_mega_url(url: str) -> bool:
     if not url:
