@@ -25,6 +25,7 @@ from Crypto.Util import Counter
 import requests
 
 from . import LOGGER
+from .config import MEGA_EMAIL, MEGA_PASSWORD
 
 
 def is_mega_url(url: str) -> bool:
@@ -38,6 +39,13 @@ def is_folder_url(url: str) -> bool:
         return False
     lower = url.lower()
     return "/folder/" in lower or "#f!" in lower
+
+
+def _login_mega(mega: Mega) -> None:
+    if MEGA_EMAIL and MEGA_PASSWORD:
+        mega.login(MEGA_EMAIL, MEGA_PASSWORD)
+        return
+    mega.login()
 
 
 def _normalize_mega_url(url: str) -> str:
@@ -326,7 +334,7 @@ async def get_mega_total_size(url: str) -> int:
         raise ValueError("Invalid MEGA URL")
 
     mega = Mega()
-    mega.login()
+    _login_mega(mega)
     link_type, handle, key = _parse_public_link(url)
     if link_type == "file":
         normalized = _normalize_mega_url(url)
@@ -352,7 +360,7 @@ async def download_mega_url(url: str, dest_dir: str) -> list[str]:
 
     mega = Mega()
     try:
-        mega.login()
+        _login_mega(mega)
         link_type, handle, key = _parse_public_link(url)
         if link_type == "folder":
             return await _download_public_folder(mega, handle, key, dest_path)
