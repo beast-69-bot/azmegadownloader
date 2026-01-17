@@ -255,6 +255,7 @@ def _download_public_node(mega: Mega, folder_id: str, node: dict, dest_dir: Path
             temp_output_file.write(chunk)
 
             encryptor = AES.new(k_str, AES.MODE_CBC, iv_str)
+            i = 0
             for i in range(0, len(chunk) - 16, 16):
                 block = chunk[i : i + 16]
                 encryptor.encrypt(block)
