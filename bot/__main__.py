@@ -9,6 +9,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from pyrogram import Client, StopPropagation, filters
+from pyrogram.enums import ParseMode
 from pyrogram.handlers import MessageHandler
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -627,7 +628,7 @@ async def help_cmd(_, message):
         "⭐ <code>/delpremium &lt;user&gt;</code>\n"
         "⭐ <code>/listpremium</code>\n\n"
         "💡 <i>Tip:</i> Premium users get unlimited tasks & priority queue 🚀",
-        parse_mode="html",
+        parse_mode=ParseMode.HTML,
     )
 
 
