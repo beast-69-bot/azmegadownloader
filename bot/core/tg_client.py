@@ -1,5 +1,6 @@
 from pyrogram import Client, enums
-from asyncio import Lock, gather
+from pyrogram.errors import FloodWait
+from asyncio import Lock, gather, sleep
 from inspect import signature
 
 from .. import LOGGER
@@ -37,17 +38,28 @@ class TgClient:
 
     @classmethod
     async def start_hclient(cls, no, b_token):
-        try:
-            hbot = await cls.wztgClient(
-                f"WZ-HBot{no}",
-                bot_token=b_token,
-                no_updates=True,
-            ).start()
-            LOGGER.info(f"Helper Bot [@{hbot.me.username}] Started!")
-            cls.helper_bots[no], cls.helper_loads[no] = hbot, 0
-        except Exception as e:
-            LOGGER.error(f"Failed to start helper bot {no} from HELPER_TOKENS. {e}")
-            cls.helper_bots.pop(no, None)
+        while True:
+            try:
+                hbot = await cls.wztgClient(
+                    f"WZ-HBot{no}",
+                    bot_token=b_token,
+                    no_updates=True,
+                ).start()
+                LOGGER.info(f"Helper Bot [@{hbot.me.username}] Started!")
+                cls.helper_bots[no], cls.helper_loads[no] = hbot, 0
+                return
+            except FloodWait as e:
+                wait_for = int(getattr(e, "value", 0) or getattr(e, "x", 0) or 60)
+                LOGGER.warning(
+                    f"FloodWait while starting helper bot {no}. Sleeping {wait_for}s."
+                )
+                await sleep(wait_for + 5)
+            except Exception as e:
+                LOGGER.error(
+                    f"Failed to start helper bot {no} from HELPER_TOKENS. {e}"
+                )
+                cls.helper_bots.pop(no, None)
+                return
 
     @classmethod
     async def start_helper_bots(cls):
@@ -71,10 +83,19 @@ class TgClient:
             bot_token=Config.BOT_TOKEN,
             workdir="/usr/src/app",
         )
-        await cls.bot.start()
-        cls.BNAME = cls.bot.me.username
-        cls.ID = Config.BOT_TOKEN.split(":", 1)[0]
-        LOGGER.info(f"WZ Bot : [@{cls.BNAME}] Started!")
+        while True:
+            try:
+                await cls.bot.start()
+                cls.BNAME = cls.bot.me.username
+                cls.ID = Config.BOT_TOKEN.split(":", 1)[0]
+                LOGGER.info(f"WZ Bot : [@{cls.BNAME}] Started!")
+                return
+            except FloodWait as e:
+                wait_for = int(getattr(e, "value", 0) or getattr(e, "x", 0) or 60)
+                LOGGER.warning(
+                    f"FloodWait while starting bot. Sleeping {wait_for}s."
+                )
+                await sleep(wait_for + 5)
 
     @classmethod
     async def start_user(cls):
@@ -87,7 +108,18 @@ class TgClient:
                     sleep_threshold=60,
                     no_updates=True,
                 )
-                await cls.user.start()
+                while True:
+                    try:
+                        await cls.user.start()
+                        break
+                    except FloodWait as e:
+                        wait_for = int(
+                            getattr(e, "value", 0) or getattr(e, "x", 0) or 60
+                        )
+                        LOGGER.warning(
+                            f"FloodWait while starting user. Sleeping {wait_for}s."
+                        )
+                        await sleep(wait_for + 5)
                 cls.IS_PREMIUM_USER = cls.user.me.is_premium
                 if cls.IS_PREMIUM_USER:
                     cls.MAX_SPLIT_SIZE = 4194304000
