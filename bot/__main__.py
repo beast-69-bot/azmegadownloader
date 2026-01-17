@@ -636,7 +636,9 @@ async def setlogchannel_cmd(client, message):
         return await message.reply("Unauthorized")
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        return await message.reply("Usage: /setlogchannel <channel_id or @username>")
+        return await message.reply(
+            "Usage: /setlogchannel <channel_id or @username>\nExample: /setlogchannel -1001234567890"
+        )
     try:
         channel_id = await _resolve_channel_id(client, parts[1])
     except Exception:
@@ -650,7 +652,9 @@ async def settaskchannel_cmd(client, message):
         return await message.reply("Unauthorized")
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        return await message.reply("Usage: /settaskchannel <channel_id or @username>")
+        return await message.reply(
+            "Usage: /settaskchannel <channel_id or @username>\nExample: /settaskchannel @mychannel"
+        )
     try:
         channel_id = await _resolve_channel_id(client, parts[1])
     except Exception:
@@ -664,7 +668,9 @@ async def addadmin_cmd(client, message):
         return await message.reply("Unauthorized")
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        return await message.reply("Usage: /addadmin <user_id or @username>")
+        return await message.reply(
+            "Usage: /addadmin <user_id or @username>\nExample: /addadmin 123456789"
+        )
     try:
         user_id = await _resolve_user_id(client, parts[1])
     except Exception:
@@ -678,7 +684,9 @@ async def deladmin_cmd(client, message):
         return await message.reply("Unauthorized")
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        return await message.reply("Usage: /deladmin <user_id or @username>")
+        return await message.reply(
+            "Usage: /deladmin <user_id or @username>\nExample: /deladmin 123456789"
+        )
     try:
         user_id = await _resolve_user_id(client, parts[1])
     except Exception:
@@ -702,7 +710,8 @@ async def setpremium_cmd(client, message):
     parts = (message.text or "").split(maxsplit=2)
     if len(parts) < 3:
         return await message.reply(
-            "Usage: /setpremium <user_id or @username> <validity>"
+            "Usage: /setpremium <user_id or @username> <validity>\n"
+            "Validity: 1w, 1m, 1y\nExample: /setpremium 123456789 1m"
         )
     try:
         user_id = await _resolve_user_id(client, parts[1])
@@ -721,7 +730,9 @@ async def delpremium_cmd(client, message):
         return await message.reply("Unauthorized")
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        return await message.reply("Usage: /delpremium <user_id or @username>")
+        return await message.reply(
+            "Usage: /delpremium <user_id or @username>\nExample: /delpremium 123456789"
+        )
     try:
         user_id = await _resolve_user_id(client, parts[1])
     except Exception:
@@ -778,12 +789,17 @@ async def bsetting_cmd(_, message):
     action = parts[1].lower()
     if action in {"set", "unset"}:
         if len(parts) < 3:
-            return await message.reply("Usage: /bsetting set <KEY> <VALUE> or /bsetting unset <KEY>")
+            return await message.reply(
+                "Usage: /bsetting set <KEY> <VALUE> or /bsetting unset <KEY>\n"
+                "Example: /bsetting set TOKEN_TTL 600"
+            )
         rest = parts[2].strip()
         if action == "set":
             key_value = rest.split(maxsplit=1)
             if len(key_value) < 2:
-                return await message.reply("Usage: /bsetting set <KEY> <VALUE>")
+                return await message.reply(
+                    "Usage: /bsetting set <KEY> <VALUE>\nExample: /bsetting set MIN_TOKEN_AGE 10"
+                )
             key, value = key_value[0].upper(), key_value[1].strip()
             if key not in allowed:
                 return await message.reply("Invalid key.")
@@ -796,9 +812,13 @@ async def bsetting_cmd(_, message):
         return await message.reply(f"OK. {key} cleared.")
 
     if len(parts) < 2:
-        return await message.reply("Usage: /bsetting <KEY> <VALUE> or /bsetting show")
+        return await message.reply(
+            "Usage: /bsetting <KEY> <VALUE> or /bsetting show\nExample: /bsetting TOKEN_TTL 600"
+        )
     if len(parts) < 3:
-        return await message.reply("Usage: /bsetting <KEY> <VALUE>")
+        return await message.reply(
+            "Usage: /bsetting <KEY> <VALUE>\nExample: /bsetting VERIFY_EXPIRE 86400"
+        )
     key = parts[1].upper()
     value = parts[2].strip()
     if key not in allowed:
