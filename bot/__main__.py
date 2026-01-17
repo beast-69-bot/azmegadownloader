@@ -51,6 +51,7 @@ from .settings_db import (
     is_globally_banned,
     is_premium,
     is_user_banned,
+    get_premium_expire_ts,
     list_premium_users,
     parse_chat_target,
     record_verify_strike,
@@ -162,6 +163,25 @@ def _get_verif_str(key: str, default: str) -> str:
     if raw:
         return raw
     return default or ""
+
+
+def _parse_validity(value: str) -> int:
+    value = (value or "").strip().lower()
+    if not value:
+        return 0
+    if value[-1] not in {"w", "m", "y"}:
+        return 0
+    num = value[:-1]
+    if not num.isdigit():
+        return 0
+    count = int(num)
+    if count <= 0:
+        return 0
+    if value.endswith("w"):
+        return count * 7 * 24 * 60 * 60
+    if value.endswith("m"):
+        return count * 30 * 24 * 60 * 60
+    return count * 365 * 24 * 60 * 60
 
 
 def _is_verified_user(user_id: int) -> bool:
@@ -679,14 +699,20 @@ async def listadmins_cmd(_, message):
 async def setpremium_cmd(client, message):
     if not _is_admin(message):
         return await message.reply("Unauthorized")
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2:
-        return await message.reply("Usage: /setpremium <user_id or @username>")
+    parts = (message.text or "").split(maxsplit=2)
+    if len(parts) < 3:
+        return await message.reply(
+            "Usage: /setpremium <user_id or @username> <validity>"
+        )
     try:
         user_id = await _resolve_user_id(client, parts[1])
     except Exception:
         return await message.reply("Invalid user id or username.")
-    set_premium(user_id, True)
+    seconds = _parse_validity(parts[2])
+    if not seconds:
+        return await message.reply("Invalid validity. Use 1w, 1m, or 1y.")
+    expire_ts = int(time.time()) + seconds
+    set_premium(user_id, True, expire_ts)
     await message.reply(f"Premium enabled: {user_id}")
 
 
@@ -710,7 +736,14 @@ async def listpremium_cmd(_, message):
     users = list_premium_users()
     if not users:
         return await message.reply("No premium users.")
-    await message.reply("Premium users:\n" + "\n".join(str(x) for x in users))
+    lines = ["Premium users:"]
+    for user_id in users:
+        exp = get_premium_expire_ts(user_id)
+        if exp:
+            lines.append(f"{user_id} (expires {datetime.datetime.fromtimestamp(exp)})")
+        else:
+            lines.append(f"{user_id}")
+    await message.reply("\n".join(lines))
 
 
 async def bsetting_cmd(_, message):

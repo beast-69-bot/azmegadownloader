@@ -67,6 +67,7 @@ def _ensure_db() -> None:
             CREATE TABLE IF NOT EXISTS user_limits (
                 user_id INTEGER PRIMARY KEY,
                 is_premium INTEGER,
+                premium_expire_ts INTEGER,
                 daily_task_count INTEGER,
                 last_task_date TEXT,
                 is_verified INTEGER,
@@ -98,6 +99,7 @@ def _ensure_user_limits(user_id: int) -> dict:
     _ensure_db()
     defaults = {
         "is_premium": 0,
+        "premium_expire_ts": 0,
         "daily_task_count": 0,
         "last_task_date": "",
         "is_verified": 0,
@@ -108,7 +110,7 @@ def _ensure_user_limits(user_id: int) -> dict:
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
             """
-            SELECT is_premium, daily_task_count, last_task_date,
+            SELECT is_premium, premium_expire_ts, daily_task_count, last_task_date,
                    is_verified, verification_fail_count, verification_blocked, is_banned
             FROM user_limits WHERE user_id = ?
             """,
@@ -118,13 +120,14 @@ def _ensure_user_limits(user_id: int) -> dict:
             conn.execute(
                 """
                 INSERT INTO user_limits (
-                    user_id, is_premium, daily_task_count, last_task_date,
+                    user_id, is_premium, premium_expire_ts, daily_task_count, last_task_date,
                     is_verified, verification_fail_count, verification_blocked, is_banned
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
                     defaults["is_premium"],
+                    defaults["premium_expire_ts"],
                     defaults["daily_task_count"],
                     defaults["last_task_date"],
                     defaults["is_verified"],
@@ -137,12 +140,13 @@ def _ensure_user_limits(user_id: int) -> dict:
             return dict(defaults)
     return {
         "is_premium": int(row[0] or 0),
-        "daily_task_count": int(row[1] or 0),
-        "last_task_date": row[2] or "",
-        "is_verified": int(row[3] or 0),
-        "verification_fail_count": int(row[4] or 0),
-        "verification_blocked": int(row[5] or 0),
-        "is_banned": int(row[6] or 0),
+        "premium_expire_ts": int(row[1] or 0),
+        "daily_task_count": int(row[2] or 0),
+        "last_task_date": row[3] or "",
+        "is_verified": int(row[4] or 0),
+        "verification_fail_count": int(row[5] or 0),
+        "verification_blocked": int(row[6] or 0),
+        "is_banned": int(row[7] or 0),
     }
 
 
@@ -151,6 +155,7 @@ def update_user_limits(user_id: int, **fields) -> None:
     _ensure_user_limits(user_id)
     allowed = {
         "is_premium",
+        "premium_expire_ts",
         "daily_task_count",
         "last_task_date",
         "is_verified",
@@ -170,11 +175,20 @@ def update_user_limits(user_id: int, **fields) -> None:
 
 def is_premium(user_id: int) -> bool:
     data = _ensure_user_limits(user_id)
-    return bool(int(data.get("is_premium", 0)))
+    if not int(data.get("is_premium", 0)):
+        return False
+    exp = int(data.get("premium_expire_ts", 0))
+    if exp and int(time.time()) > exp:
+        update_user_limits(user_id, is_premium=0, premium_expire_ts=0)
+        return False
+    return True
 
 
-def set_premium(user_id: int, enabled: bool) -> None:
-    update_user_limits(user_id, is_premium=1 if enabled else 0)
+def set_premium(user_id: int, enabled: bool, expire_ts: int = 0) -> None:
+    if enabled:
+        update_user_limits(user_id, is_premium=1, premium_expire_ts=int(expire_ts or 0))
+    else:
+        update_user_limits(user_id, is_premium=0, premium_expire_ts=0)
 
 
 def list_premium_users() -> list[int]:
@@ -184,6 +198,11 @@ def list_premium_users() -> list[int]:
             "SELECT user_id FROM user_limits WHERE is_premium = 1"
         ).fetchall()
     return [int(row[0]) for row in rows]
+
+
+def get_premium_expire_ts(user_id: int) -> int:
+    data = _ensure_user_limits(user_id)
+    return int(data.get("premium_expire_ts", 0))
 
 
 def is_globally_banned(user_id: int) -> bool:
