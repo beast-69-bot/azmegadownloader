@@ -117,10 +117,17 @@ def _get_verif_value(key: str) -> str:
 
 
 def _format_bsetting_text() -> str:
-    lines = ["🧩 <b>Verification Settings</b>"]
+    def fmt_value(key: str, value: str) -> str:
+        if not value:
+            return "<i>none</i>"
+        if key == "SUPPORT_ID" and value and not value.startswith("@"):
+            value = f"@{value}"
+        return f"<code>{value}</code>"
+
+    lines = ["🧩 <b>Verification Settings</b>", ""]
     for key in BSETTING_KEYS:
         value = _get_verif_value(key)
-        lines.append(f"{key}: {value or 'none'}")
+        lines.append(f"• <b>{key}</b>: {fmt_value(key, value)}")
     lines.append("")
     lines.append("Tap a key to set. Send <code>clear</code> to unset.")
     return "\n".join(lines)
