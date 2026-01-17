@@ -12,6 +12,7 @@ from ..helper.telegram_helper.filters import CustomFilters
 from ..helper.telegram_helper.message_utils import send_message
 from ..helper.telegram_helper.tg_utils import forcesub, verify_token
 from ..modules import *
+from ..modules.payments import get_pay_handlers
 from .tg_client import TgClient
 
 
@@ -26,7 +27,12 @@ def _flatten_commands():
 
 
 _ALLOW_NO_GATE = set()
-for _item in (BotCommands.StartCommand, BotCommands.LoginCommand, BotCommands.HelpCommand):
+for _item in (
+    BotCommands.StartCommand,
+    BotCommands.LoginCommand,
+    BotCommands.HelpCommand,
+    BotCommands.RedeemCommand,
+):
     if isinstance(_item, list):
         _ALLOW_NO_GATE.update(_item)
     else:
@@ -328,6 +334,9 @@ def add_handlers():
             & CustomFilters.authorized,
         )
     )
+
+    for handler in get_pay_handlers():
+        TgClient.bot.add_handler(handler)
     TgClient.bot.add_handler(
         CallbackQueryHandler(imdb_callback, filters=regex("^imdb"))
     )

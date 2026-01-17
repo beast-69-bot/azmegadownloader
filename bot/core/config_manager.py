@@ -105,6 +105,10 @@ class Config:
     THUMBNAIL_LAYOUT = ""
     VERIFY_TIMEOUT = 0
     LOGIN_PASS = ""
+    SUPPORT_ID = ""
+    PAYMENT_UPI = ""
+    PAYMENT_QR = ""
+    PAYMENT_CHANNEL = ""
     TORRENT_TIMEOUT = 0
     TIMEZONE = "Asia/Kolkata"
     USER_MAX_TASKS = 0

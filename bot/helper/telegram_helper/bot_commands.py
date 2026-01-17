@@ -51,6 +51,14 @@ class BotCommands:
         "Select": ["select", "sel"],
         "NzbSearch": ["nzbsearch", "ns"],
         "Plugins": "plugins",
+        "Pay": "pay",
+        "PayApprove": "payapprove",
+        "PayReject": "payreject",
+        "SetPremium": "setpremium",
+        "DelPremium": "delpremium",
+        "ListPremium": "listpremium",
+        "Generate": "generate",
+        "Redeem": "redeem",
     }
 
     @classmethod

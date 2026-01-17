@@ -38,6 +38,18 @@ from .stats import bot_stats, stats_pages, get_packages_version
 from .status import task_status, status_pages
 from .users_settings import get_users_settings, edit_user_settings, send_user_settings
 from .ytdlp import ytdl, ytdl_leech
+from .payments import (
+    pay,
+    pay_callback,
+    pay_admin_callback,
+    pay_input,
+    setpremium,
+    delpremium,
+    listpremium,
+    generate,
+    redeem,
+    get_pay_handlers,
+)
 
 __all__ = [
     "send_bot_settings",
@@ -103,4 +115,14 @@ __all__ = [
     "send_user_settings",
     "ytdl",
     "ytdl_leech",
+    "pay",
+    "pay_callback",
+    "pay_admin_callback",
+    "pay_input",
+    "setpremium",
+    "delpremium",
+    "listpremium",
+    "generate",
+    "redeem",
+    "get_pay_handlers",
 ]

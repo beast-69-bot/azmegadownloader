@@ -544,6 +544,18 @@ def get_help_string():
             )
         elif key == "Rss":
             help_lines.append(f"/{BotCommands.RssCommand}: RSS Menu.")
+        elif key == "Pay":
+            help_lines.append(f"{cmd_str}: Start premium payment flow.")
+        elif key == "Redeem":
+            help_lines.append(f"{cmd_str} [token]: Redeem premium token.")
+        elif key == "SetPremium":
+            help_lines.append(f"{cmd_str} [user] [validity]: Enable premium (Only Owner & Sudo).")
+        elif key == "DelPremium":
+            help_lines.append(f"{cmd_str} [user]: Disable premium (Only Owner & Sudo).")
+        elif key == "ListPremium":
+            help_lines.append(f"{cmd_str}: List premium users (Only Owner & Sudo).")
+        elif key == "Generate":
+            help_lines.append(f"{cmd_str} [qty]: Generate premium tokens (Only Owner & Sudo).")
 
     return "\n".join(help_lines)
 
