@@ -301,13 +301,21 @@ async def _download_public_folder(mega: Mega, folder_id: str, folder_key: str, d
         raise RuntimeError("No files found in MEGA folder")
 
     downloaded: list[str] = []
+    failures: list[str] = []
     for node, rel_path in download_items:
         target_dir = dest_path / rel_path.parent
         safe_mkdir(target_dir)
-        output_path = await asyncio.to_thread(
-            _download_public_node, mega, folder_id, node, target_dir, rel_path.name
-        )
-        downloaded.append(str(Path(output_path).resolve()))
+        try:
+            output_path = await asyncio.to_thread(
+                _download_public_node, mega, folder_id, node, target_dir, rel_path.name
+            )
+            downloaded.append(str(Path(output_path).resolve()))
+        except Exception as exc:
+            failures.append(f"{rel_path} ({exc})")
+            LOGGER.warning(f"Skipping MEGA file {rel_path}: {exc}")
+            continue
+    if failures and not downloaded:
+        raise RuntimeError("All MEGA files failed to download")
     return downloaded
 
 
