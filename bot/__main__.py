@@ -43,11 +43,13 @@ from .settings_db import (
     clear_verify_strikes,
     clear_verify_tokens,
     create_verify_token,
+    create_premium_tokens,
     get_admin_ids,
     get_daily_task_count,
     get_daily_task_count_snapshot,
     get_global_setting,
     get_settings,
+    get_premium_token,
     get_verify_status,
     get_verify_token,
     increment_daily_task_count,
@@ -57,6 +59,7 @@ from .settings_db import (
     get_premium_expire_ts,
     list_banned_users,
     list_premium_users,
+    mark_premium_token_redeemed,
     parse_chat_target,
     record_verify_strike,
     remove_admin_id,
@@ -323,7 +326,7 @@ async def verification_gate(client: Client, message):
         return
     if message.command:
         cmd = message.command[0]
-        if cmd in {"start", "help", "ping", "settings", "leech", "status", "speedtest"}:
+        if cmd in {"start", "help", "ping", "settings", "leech", "status", "speedtest", "redeem"}:
             return
     if is_user_banned(message.from_user.id):
         await _reply(message, 
@@ -746,6 +749,69 @@ async def speedtest_cmd(_, message):
         await _edit(status, "✅ <b>Speedtest complete.</b>")
     else:
         await _edit(status, text)
+
+
+async def generate_cmd(_, message):
+    if not _is_admin(message):
+        return await _reply(message, "⛔ Unauthorized", parse_mode=None)
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].isdigit():
+        return await message.reply_text(
+            "Usage: /generate <qty>", parse_mode=None
+        )
+    qty = int(parts[1])
+    if qty <= 0:
+        return await message.reply_text("Usage: /generate <qty>", parse_mode=None)
+    tokens = create_premium_tokens(qty, message.from_user.id if message.from_user else 0)
+    body = "\n".join(tokens)
+    text = (
+        "✅ Tokens Generated Successfully\n\n"
+        "⏳ Validity: 1 hour\n"
+        "🔐 Single-use only\n\n"
+        "🔑 Generated Tokens:\n"
+        "```\n"
+        f"{body}\n"
+        "```\n"
+        "Share one token with one user only."
+    )
+    await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+async def redeem_cmd(_, message):
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply_text("Usage: /redeem <token>", parse_mode=None)
+    token = parts[1].strip().upper()
+    token_info = get_premium_token(token)
+    if not token_info:
+        return await message.reply_text("❌ Invalid token.", parse_mode=None)
+
+    now = int(time.time())
+    if token_info.get("expires_at") and now > int(token_info["expires_at"]):
+        return await message.reply_text(
+            "⏳ This token has expired. Please contact admin.",
+            parse_mode=None,
+        )
+    if token_info.get("redeemed_by"):
+        return await message.reply_text(
+            "❌ This token has already been redeemed. Try a new one.",
+            parse_mode=None,
+        )
+
+    mark_premium_token_redeemed(token, message.from_user.id if message.from_user else 0, now)
+    current_exp = get_premium_expire_ts(message.from_user.id if message.from_user else 0)
+    base = max(now, current_exp)
+    expire_ts = base + 24 * 60 * 60
+    set_premium(message.from_user.id if message.from_user else 0, True, expire_ts)
+    valid_till = datetime.datetime.fromtimestamp(expire_ts).strftime("%Y-%m-%d %H:%M")
+    text = (
+        "🎉 Premium Activated!\n\n"
+        "Plan      : 1 Day Premium\n"
+        f"Token     : `{token}`\n"
+        f"Valid Till: {valid_till}\n\n"
+        "Enjoy unlimited leech & priority 🚀"
+    )
+    await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 
 async def leech_cmd(client, message):
@@ -1343,6 +1409,8 @@ def main():
                     "leech",
                     "cancel",
                     "settings",
+                    "generate",
+                    "redeem",
                     "setlogchannel",
                     "settaskchannel",
                     "addadmin",
@@ -1368,6 +1436,8 @@ def main():
     app.add_handler(MessageHandler(help_cmd, filters.command("help")), group=1)
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")), group=1)
     app.add_handler(MessageHandler(speedtest_cmd, filters.command("speedtest")), group=1)
+    app.add_handler(MessageHandler(generate_cmd, filters.command("generate")), group=1)
+    app.add_handler(MessageHandler(redeem_cmd, filters.command("redeem")), group=1)
     app.add_handler(MessageHandler(leech_cmd, filters.command("leech")), group=1)
     app.add_handler(MessageHandler(cancel_cmd, filters.command("cancel")), group=1)
     app.add_handler(MessageHandler(settings_cmd, filters.command("settings")), group=1)
@@ -1401,6 +1471,8 @@ def main():
                     "help",
                     "ping",
                     "speedtest",
+                    "generate",
+                    "redeem",
                     "leech",
                     "cancel",
                     "settings",

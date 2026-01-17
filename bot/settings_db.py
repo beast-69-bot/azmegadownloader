@@ -82,6 +82,18 @@ def _ensure_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS premium_tokens (
+                token TEXT PRIMARY KEY,
+                created_at INTEGER,
+                expires_at INTEGER,
+                redeemed_by INTEGER,
+                redeemed_at INTEGER,
+                generated_by INTEGER
+            )
+            """
+        )
         conn.commit()
 
 
@@ -237,6 +249,71 @@ def list_banned_users() -> list[int]:
             "SELECT user_id FROM user_limits WHERE is_banned = 1"
         ).fetchall()
     return [int(row[0]) for row in rows]
+
+
+def create_premium_tokens(qty: int, generated_by: int, ttl_seconds: int = 3600) -> list[str]:
+    _ensure_db()
+    now = int(time.time())
+    tokens: list[str] = []
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    with sqlite3.connect(DB_PATH) as conn:
+        for _ in range(qty):
+            while True:
+                token = "PREM-" + "".join(secrets.choice(alphabet) for _ in range(6))
+                expires_at = now + ttl_seconds
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO premium_tokens
+                            (token, created_at, expires_at, redeemed_by, redeemed_at, generated_by)
+                        VALUES (?, ?, ?, NULL, NULL, ?)
+                        """,
+                        (token, now, expires_at, generated_by),
+                    )
+                    tokens.append(token)
+                    break
+                except sqlite3.IntegrityError:
+                    continue
+        conn.commit()
+    return tokens
+
+
+def get_premium_token(token: str) -> dict | None:
+    _ensure_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT token, created_at, expires_at, redeemed_by, redeemed_at, generated_by
+            FROM premium_tokens WHERE token = ?
+            """,
+            (token,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "token": row[0],
+        "created_at": int(row[1] or 0),
+        "expires_at": int(row[2] or 0),
+        "redeemed_by": row[3],
+        "redeemed_at": row[4],
+        "generated_by": row[5],
+    }
+
+
+def mark_premium_token_redeemed(token: str, user_id: int, redeemed_at: int | None = None) -> None:
+    _ensure_db()
+    if redeemed_at is None:
+        redeemed_at = int(time.time())
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            UPDATE premium_tokens
+            SET redeemed_by = ?, redeemed_at = ?
+            WHERE token = ? AND redeemed_by IS NULL
+            """,
+            (user_id, redeemed_at, token),
+        )
+        conn.commit()
 
 
 def get_daily_task_count(user_id: int, today: str) -> int:
