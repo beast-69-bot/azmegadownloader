@@ -12,6 +12,7 @@ from pyrogram import Client, StopPropagation, filters
 from pyrogram.enums import ParseMode
 from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from speedtest import ConfigRetrievalError, Speedtest
 
 from . import LOGGER
 from .config import (
@@ -322,7 +323,7 @@ async def verification_gate(client: Client, message):
         return
     if message.command:
         cmd = message.command[0]
-        if cmd in {"start", "help", "ping", "settings", "leech", "status"}:
+        if cmd in {"start", "help", "ping", "settings", "leech", "status", "speedtest"}:
             return
     if is_user_banned(message.from_user.id):
         await _reply(message, 
@@ -682,6 +683,7 @@ async def help_cmd(_, message):
         "\u2022 /leech &lt;mega link&gt;  \u2192 download + upload\n"
         "\u2022 /cancel &lt;task_id&gt;   \u2192 cancel your task\n"
         "\u2022 /settings           \u2192 chat id, caption, thumbnail\n"
+        "\u2022 /speedtest          \u2192 check server speed\n"
         "\u2022 /ping               \u2192 bot status\n"
         "\u2022 /start              \u2192 start bot\n"
         "\u2022 /help               \u2192 this menu\n\n"
@@ -701,6 +703,49 @@ async def help_cmd(_, message):
 
 async def ping_cmd(_, message):
     await _reply(message, "🏓 <b>pong</b>")
+
+
+async def speedtest_cmd(_, message):
+    status = await _reply(message, "<i>Initiating Speedtest...</i>")
+
+    def _run_speedtest():
+        st = Speedtest()
+        st.get_best_server()
+        st.download()
+        st.upload()
+        st.results.share()
+        return st.results.dict()
+
+    try:
+        result = await asyncio.to_thread(_run_speedtest)
+    except ConfigRetrievalError:
+        return await _edit(status, "❌ <b>Speedtest failed.</b> Unable to fetch server config.")
+    except Exception as exc:
+        return await _edit(status, f"❌ <b>Speedtest failed.</b> {exc}")
+
+    download_mbps = (result.get("download") or 0) / 1_000_000
+    upload_mbps = (result.get("upload") or 0) / 1_000_000
+    ping_ms = result.get("ping") or 0
+    isp = (result.get("client") or {}).get("isp", "Unknown")
+    server = result.get("server") or {}
+    server_name = server.get("name", "Unknown")
+    server_country = server.get("country", "Unknown")
+    share_url = result.get("share")
+
+    text = (
+        "<b>Speedtest Results</b>\n\n"
+        f"Download: <b>{download_mbps:.2f} Mbps</b>\n"
+        f"Upload: <b>{upload_mbps:.2f} Mbps</b>\n"
+        f"Ping: <b>{ping_ms:.0f} ms</b>\n"
+        f"ISP: <b>{isp}</b>\n"
+        f"Server: <b>{server_name} ({server_country})</b>"
+    )
+
+    if share_url:
+        await message.reply_photo(share_url, caption=text, parse_mode=ParseMode.HTML)
+        await _edit(status, "✅ <b>Speedtest complete.</b>")
+    else:
+        await _edit(status, text)
 
 
 async def leech_cmd(client, message):
@@ -1294,6 +1339,7 @@ def main():
                     "start",
                     "help",
                     "ping",
+                    "speedtest",
                     "leech",
                     "cancel",
                     "settings",
@@ -1321,6 +1367,7 @@ def main():
     app.add_handler(MessageHandler(start_cmd, filters.command("start")), group=1)
     app.add_handler(MessageHandler(help_cmd, filters.command("help")), group=1)
     app.add_handler(MessageHandler(ping_cmd, filters.command("ping")), group=1)
+    app.add_handler(MessageHandler(speedtest_cmd, filters.command("speedtest")), group=1)
     app.add_handler(MessageHandler(leech_cmd, filters.command("leech")), group=1)
     app.add_handler(MessageHandler(cancel_cmd, filters.command("cancel")), group=1)
     app.add_handler(MessageHandler(settings_cmd, filters.command("settings")), group=1)
@@ -1353,6 +1400,7 @@ def main():
                     "start",
                     "help",
                     "ping",
+                    "speedtest",
                     "leech",
                     "cancel",
                     "settings",
