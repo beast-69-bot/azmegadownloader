@@ -1038,17 +1038,96 @@ async def _notify_payment_request(client, message, pending: PaymentRequest) -> N
 
     for target in targets:
         try:
+            buttons = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "✅ Approve",
+                            callback_data=f"payadmin:approve:{user.id if user else 0}",
+                        ),
+                        InlineKeyboardButton(
+                            "❌ Decline",
+                            callback_data=f"payadmin:reject:{user.id if user else 0}",
+                        ),
+                    ]
+                ]
+            )
             if pending.screenshot_id:
                 await client.send_photo(
                     int(target),
                     pending.screenshot_id,
                     caption=text,
                     parse_mode=ParseMode.HTML,
+                    reply_markup=buttons,
                 )
             else:
-                await client.send_message(int(target), text, parse_mode=ParseMode.HTML)
+                await client.send_message(
+                    int(target),
+                    text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=buttons,
+                )
         except Exception:
             continue
+
+
+async def pay_admin_callback(client, cq):
+    if not _is_admin(cq):
+        await cq.answer("Unauthorized", show_alert=True)
+        return
+    data = cq.data or ""
+    if not data.startswith("payadmin:"):
+        return
+    parts = data.split(":")
+    if len(parts) != 3 or not parts[2].isdigit():
+        await cq.answer("Invalid request", show_alert=True)
+        return
+    action = parts[1]
+    user_id = int(parts[2])
+    pending = PAYMENT_PENDING.pop(user_id, None)
+    if not pending:
+        await cq.answer("No pending payment found.", show_alert=True)
+        return
+
+    if action == "approve":
+        expire_ts = int(time.time()) + pending.seconds
+        set_premium(user_id, True, expire_ts)
+        await cq.message.edit_text(
+            f"✅ <b>Payment approved.</b>\nUser: {user_id}\nPlan: {pending.label}",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            await client.send_message(
+                user_id,
+                "🎉 <b>Premium Activated!</b>\n\n"
+                f"Plan: <b>{pending.label}</b>\n"
+                f"Valid Till: <b>{datetime.datetime.fromtimestamp(expire_ts)}</b>\n\n"
+                "Enjoy unlimited leech & priority access 🚀",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        await cq.answer("Approved")
+        return
+
+    if action == "reject":
+        await cq.message.edit_text(
+            f"❌ <b>Payment rejected.</b>\nUser: {user_id}\nPlan: {pending.label}",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            await client.send_message(
+                user_id,
+                "❌ <b>Payment verification failed.</b>\n"
+                "Please contact admin for support.",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        await cq.answer("Rejected")
+        return
+
+    await cq.answer()
 
 
 async def payapprove_cmd(client, message):
@@ -1157,6 +1236,10 @@ def main():
     app.add_handler(MessageHandler(payapprove_cmd, filters.command("payapprove")), group=1)
     app.add_handler(MessageHandler(payreject_cmd, filters.command("payreject")), group=1)
     app.add_handler(CallbackQueryHandler(pay_callback, filters.regex("^pay:")), group=1)
+    app.add_handler(
+        CallbackQueryHandler(pay_admin_callback, filters.regex("^payadmin:")),
+        group=1,
+    )
     app.add_handler(
         MessageHandler(
             pay_input_handler,
