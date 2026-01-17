@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405
 
 from pyrogram.filters import command, regex
+from pyrogram import StopPropagation
 from pyrogram.handlers import CallbackQueryHandler, EditedMessageHandler, MessageHandler
 from pyrogram.types import BotCommand
 
@@ -8,11 +9,60 @@ from ..core.config_manager import Config
 from ..helper.ext_utils.help_messages import BOT_COMMANDS
 from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.filters import CustomFilters
+from ..helper.telegram_helper.message_utils import send_message
+from ..helper.telegram_helper.tg_utils import forcesub, verify_token
 from ..modules import *
 from .tg_client import TgClient
 
 
+def _flatten_commands():
+    cmds = []
+    for items in BotCommands.get_commands().values():
+        if isinstance(items, list):
+            cmds.extend(items)
+        else:
+            cmds.append(items)
+    return [c for c in cmds if c]
+
+
+_ALLOW_NO_GATE = set()
+for _item in (BotCommands.StartCommand, BotCommands.LoginCommand, BotCommands.HelpCommand):
+    if isinstance(_item, list):
+        _ALLOW_NO_GATE.update(_item)
+    else:
+        _ALLOW_NO_GATE.add(_item)
+
+
+async def global_gate(_, message):
+    if not message.from_user:
+        return
+    if await CustomFilters.sudo(_, message):
+        return
+    if message.command and message.command[0] in _ALLOW_NO_GATE:
+        return
+    if not Config.FORCE_SUB_IDS and not Config.VERIFY_TIMEOUT:
+        return
+
+    if Config.FORCE_SUB_IDS:
+        msg, button = await forcesub(message, Config.FORCE_SUB_IDS)
+        if msg:
+            await send_message(message, msg, button)
+            raise StopPropagation
+
+    msg, button = await verify_token(message.from_user.id)
+    if msg:
+        await send_message(message, msg, button)
+        raise StopPropagation
+
+
 def add_handlers():
+    TgClient.bot.add_handler(
+        MessageHandler(
+            global_gate,
+            filters=command(_flatten_commands(), case_sensitive=True),
+        ),
+        group=0,
+    )
     TgClient.bot.add_handler(
         MessageHandler(
             authorize,
