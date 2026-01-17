@@ -1158,7 +1158,32 @@ def main():
     app.add_handler(MessageHandler(payreject_cmd, filters.command("payreject")), group=1)
     app.add_handler(CallbackQueryHandler(pay_callback, filters.regex("^pay:")), group=1)
     app.add_handler(
-        MessageHandler(pay_input_handler, filters.private & ~filters.command()),
+        MessageHandler(
+            pay_input_handler,
+            filters.private
+            & ~filters.command(
+                [
+                    "start",
+                    "help",
+                    "ping",
+                    "leech",
+                    "cancel",
+                    "settings",
+                    "setlogchannel",
+                    "settaskchannel",
+                    "addadmin",
+                    "deladmin",
+                    "listadmins",
+                    "setpremium",
+                    "delpremium",
+                    "listpremium",
+                    "bsetting",
+                    "pay",
+                    "payapprove",
+                    "payreject",
+                ]
+            ),
+        ),
         group=1,
     )
     app.add_handler(MessageHandler(bsetting_cmd, filters.command("bsetting")), group=1)
