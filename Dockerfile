@@ -14,6 +14,7 @@ RUN apt-get update \
         python3-dev \
         libssl-dev \
         libcrypto++-dev \
+        libsodium-dev \
         libcurl4-openssl-dev \
         libsqlite3-dev \
         libc-ares-dev \
