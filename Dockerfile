@@ -30,7 +30,7 @@ RUN apt-get update \
 RUN git clone --depth 1 https://github.com/meganz/sdk.git /tmp/meganz-sdk \
     && mkdir -p /tmp/meganz-sdk/build \
     && cd /tmp/meganz-sdk/build \
-    && cmake -DENABLE_PYTHON=ON -DCMAKE_BUILD_TYPE=Release .. \
+    && cmake -DENABLE_PYTHON=ON -DCMAKE_BUILD_TYPE=Release -DUSE_PDFIUM=OFF .. \
     && make -j"$(nproc)" \
     && cd /tmp/meganz-sdk/bindings/python \
     && python3 setup.py build \
