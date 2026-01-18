@@ -21,10 +21,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 https://github.com/meganz/sdk.git /tmp/meganz-sdk \
-    && cd /tmp/meganz-sdk \
-    && cmake -DENABLE_PYTHON=ON -DCMAKE_BUILD_TYPE=Release . \
+    && mkdir -p /tmp/meganz-sdk/build \
+    && cd /tmp/meganz-sdk/build \
+    && cmake -DENABLE_PYTHON=ON -DCMAKE_BUILD_TYPE=Release .. \
     && make -j"$(nproc)" \
-    && cd bindings/python \
+    && cd /tmp/meganz-sdk/bindings/python \
     && python3 setup.py build \
     && python3 setup.py install \
     && cd / \
