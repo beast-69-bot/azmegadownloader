@@ -23,6 +23,7 @@ RUN apt-get update \
         libavutil-dev \
         libswscale-dev \
         libswresample-dev \
+        libreadline-dev \
         libc-ares-dev \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
