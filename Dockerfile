@@ -16,6 +16,7 @@ RUN apt-get update \
         libcrypto++-dev \
         libsodium-dev \
         libcurl4-openssl-dev \
+        libicu-dev \
         libsqlite3-dev \
         libc-ares-dev \
         zlib1g-dev \
