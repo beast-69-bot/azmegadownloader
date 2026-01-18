@@ -18,6 +18,11 @@ RUN apt-get update \
         libcurl4-openssl-dev \
         libicu-dev \
         libsqlite3-dev \
+        libavformat-dev \
+        libavcodec-dev \
+        libavutil-dev \
+        libswscale-dev \
+        libswresample-dev \
         libc-ares-dev \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
